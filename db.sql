@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS categories (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+INSERT IGNORE INTO categories (title, description) VALUES
+('Backend Development', 'Questions about server-side logic, databases, APIs, application architecture (Node.js, PHP, Python, Java, Go, etc.)'),
+('Frontend Development', 'Questions about client-side development, user interfaces, and web design (HTML, CSS, JavaScript, React, Angular, Vue.js, etc.)'),
+('Mobile Development', 'Questions about mobile app development for iOS and Android platforms.'),
+('DevOps', 'Questions about deployment, CI/CD pipelines, cloud services, and infrastructure management.'),
+('Data Science', 'Questions about data analysis, machine learning, AI, and statistical modeling.'),
+('Cybersecurity', 'Questions about security practices, vulnerabilities, encryption, and ethical hacking.'),
+('Game Development', 'Questions about creating video games, game engines, graphics programming, and game design.'),
+('Software Testing', 'Questions about testing methodologies, test automation, QA processes, and bug tracking.');
+
 CREATE TABLE IF NOT EXISTS posts (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     author_id INT UNSIGNED NOT NULL,
@@ -41,6 +51,13 @@ CREATE TABLE IF NOT EXISTS posts (
     FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+INSERT IGNORE INTO posts (author_id, title, content, status) VALUES
+(1, 'How to optimize SQL queries for better performance?', 'I have a large database and some of my SQL queries are running slow. What are some best practices for optimizing SQL queries to improve performance?', 'active'),
+(2, 'What is the difference between REST and GraphQL?', 'I am trying to understand the differences between REST and GraphQL APIs. Can someone explain the pros and cons of each approach?', 'active'),
+(3, 'How to implement JWT authentication in a Node.js application?', 'I am building a Node.js application and want to implement JWT authentication. Can someone provide a step-by-step guide or example code?', 'active'),
+(4, 'What are the best practices for responsive web design?', 'I want to make my website responsive and mobile-friendly. What are some best practices for responsive web design?', 'active'),
+(5, 'How to deploy a Django application on AWS?', 'I have developed a Django application and want to deploy it on AWS. What are the steps involved in deploying a Django app on AWS?', 'active');
+
 CREATE TABLE IF NOT EXISTS post_categories(
     post_id INT UNSIGNED NOT NULL,
     category_id INT UNSIGNED NOT NULL,
@@ -49,6 +66,13 @@ CREATE TABLE IF NOT EXISTS post_categories(
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
     INDEX idx_category_id (category_id)
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO post_categories (post_id, category_id) VALUES
+(1, 1),
+(2, 1),
+(3, 1),
+(4, 2),
+(5, 1);
 
 CREATE TABLE IF NOT EXISTS comments (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -61,6 +85,13 @@ CREATE TABLE IF NOT EXISTS comments (
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
     FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO comments (post_id, author_id, content, status) VALUES
+(1, 2, 'You can use EXPLAIN to analyze your queries and identify bottlenecks. Also, consider indexing frequently queried columns.', 'active'),
+(1, 3, 'Make sure to avoid SELECT * and only retrieve the columns you need. This can significantly improve performance.', 'active'),
+(2, 4, 'REST is more traditional and widely used, while GraphQL allows clients to request exactly what they need. It can reduce over-fetching of data.', 'active'),
+(3, 5, 'You can use the jsonwebtoken library in Node.js to implement JWT authentication. Make sure to securely store your secret key.', 'active'),
+(4, 1, 'Use media queries and flexible grid layouts to ensure your website looks good on all devices. Test on multiple screen sizes.', 'active');
 
 CREATE TABLE IF NOT EXISTS likes (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -81,6 +112,13 @@ CREATE TABLE IF NOT EXISTS likes (
     UNIQUE KEY uniq_author_comment (author_id, comment_id)  
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+INSERT IGNORE INTO likes (author_id, type, target_type, post_id, comment_id) VALUES
+(2, 'like', 'post', 1, NULL),
+(3, 'like', 'post', 1, NULL),
+(4, 'dislike', 'post', 2, NULL),
+(5, 'like', 'comment', NULL, 1),
+(1, 'dislike', 'comment', NULL, 2);
+
 CREATE TABLE IF NOT EXISTS favorites (
     user_id INT UNSIGNED NOT NULL,
     post_id INT UNSIGNED NOT NULL,
@@ -88,6 +126,13 @@ CREATE TABLE IF NOT EXISTS favorites (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO favorites (user_id, post_id) VALUES
+(2, 1),
+(3, 1),
+(4, 2),
+(5, 3),
+(1, 4);
 
 CREATE TABLE IF NOT EXISTS post_subscriptions (
     user_id INT UNSIGNED NOT NULL,
@@ -97,6 +142,13 @@ CREATE TABLE IF NOT EXISTS post_subscriptions (
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+INSERT IGNORE INTO post_subscriptions (user_id, post_id) VALUES
+(2, 1),
+(3, 1),
+(4, 2),
+(5, 3),
+(1, 4);
+
 CREATE TABLE IF NOT EXISTS category_subscriptions (
     user_id INT UNSIGNED NOT NULL,
     category_id INT UNSIGNED NOT NULL,
@@ -104,3 +156,10 @@ CREATE TABLE IF NOT EXISTS category_subscriptions (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO category_subscriptions (user_id, category_id) VALUES
+(2, 1),
+(3, 1),
+(4, 2),
+(5, 3),
+(1, 4);
