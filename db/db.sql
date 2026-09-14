@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS users (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     login VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
+    password_reset_token VARCHAR(255),
+    password_reset_expires DATETIME,
     full_name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     email_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -11,16 +13,27 @@ CREATE TABLE IF NOT EXISTS users (
     role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_email_confirm_token (email_confirm_token)
+    INDEX idx_email_confirm_token (email_confirm_token),
+    INDEX idx_password_reset_token (password_reset_token),
+    INDEX idx_password_reset_expires (password_reset_expires)
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO users (login, password, full_name, email, email_confirmed, role) VALUES
-('mmykhalchenko', 'hashed_pass1', 'Mariia Mykhalchenko', 'mmykhalchenko@test.com', TRUE, 'admin'),
-('vshaforostova', 'hashed_pass2', 'Viktoriia Shaforostova', 'vshaforostova@test.com', TRUE, 'user'),
-('dburlachenko', 'hashed_pass3', 'Daniil Burlachenko', 'dburlachenko@test.com', TRUE, 'user'),
-('rferchuk', 'hashed_pass4', 'Roman Ferchuk', 'rferchuk@test.com', TRUE, 'user'),
-('amilshina', 'hashed_pass5', 'Albina Milshina', 'amilshina@test.com', TRUE, 'user'),
-('vkasatonov', 'hashed_pass6', 'Владислав Касатонов', 'vkasatonov@test.com', TRUE, 'user');
+('mmykhalchenko', '$2b$10$T8Z.X2hV7VzQ3f9.4p3U3e5H7rM9c4/Z.T.uL.G.g.Z.L.R.T.N.W', 'Mariia Mykhalchenko', 'mmykhalchenko@test.com', TRUE, 'admin'),
+('vshaforostova', '$2b$10$T8Z.X2hV7VzQ3f9.4p3U3e5H7rM9c4/Z.T.uL.G.g.Z.L.R.T.N.W', 'Viktoriia Shaforostova', 'vshaforostova@test.com', TRUE, 'user'),
+('dburlachenko', '$2b$10$T8Z.X2hV7VzQ3f9.4p3U3e5H7rM9c4/Z.T.uL.G.g.Z.L.R.T.N.W', 'Daniil Burlachenko', 'dburlachenko@test.com', TRUE, 'user'),
+('rferchuk', '$2b$10$T8Z.X2hV7VzQ3f9.4p3U3e5H7rM9c4/Z.T.uL.G.g.Z.L.R.T.N.W', 'Roman Ferchuk', 'rferchuk@test.com', TRUE, 'user'),
+('amilshina', '$2b$10$T8Z.X2hV7VzQ3f9.4p3U3e5H7rM9c4/Z.T.uL.G.g.Z.L.R.T.N.W', 'Albina Milshina', 'amilshina@test.com', TRUE, 'user'),
+('vkasatonov', '$2b$10$T8Z.X2hV7VzQ3f9.4p3U3e5H7rM9c4/Z.T.uL.G.g.Z.L.R.T.N.W', 'Владислав Касатонов', 'vkasatonov@test.com', TRUE, 'user');
+
+CREATE TABLE IF NOT EXISTS blacklisted_tokens (
+    id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    token_hash CHAR(64) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_token_hash (token_hash),
+    INDEX idx_expires_at (expires_at)
+) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS categories (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
