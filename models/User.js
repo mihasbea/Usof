@@ -40,6 +40,26 @@ class User {
         const [result] = await pool.query(sql,[tokenHash, expiresAt, userId]);
         return result.affectedRows > 0;
     }
+
+    static async findByValidResetToken(tokenHash) {
+        const sql = `
+        SELECT * FROM users 
+        WHERE password_reset_token = ? 
+        AND password_reset_expires > NOW()
+        `;
+        const [rows] = await pool.query(sql,[tokenHash]);
+        return rows[0];
+    }
+
+    static async updatePassAndClearResetToken(userId, hashedNewPass) {
+        const sql = `
+        UPDATE users 
+        SET password = ?, password_reset_token = NULL, password_reset_expires = NULL
+        WHERE id = ?
+        `;
+        const [result] = await pool.query(sql, [hashedNewPass, userId]);
+        return result.affectedRows > 0;
+    }
 }
 
 module.exports = User;

@@ -118,6 +118,35 @@ class AuthController {
             return res.status(500).json({ message: 'Internal server error' });
         }
     }
+
+    static async confirmPassReset(req, res) {
+        try {
+            const { confirm_token } = req.params;
+            const { new_password, new_password_confirmation } = req.body;
+
+            if (!new_password || !new_password_confirmation) {
+                return res.status(400).json({ message: 'Both pasfford fields are required' })
+            }
+            if (new_password !== new_password_confirmation) {
+                return res.status(400).json({ message:'Passwords do not match' });
+            }
+
+            const tokenHash = crypto.createHash('sha256').update(confirm_token).digest('hex');
+            const user = await User.findByValidResetToken(tokenHash);
+
+            if (!user) {
+                return res.status(400).json({ message: 'Invalid or expired password reset token' });
+            }
+
+            const hashedPassword = await bcrypt.hash(new_password, 10);
+            await User.updatePassAndClearResetToken(user.id, hashedPassword);
+
+            return res.status(200).json({ message: 'Password has been successfully reset' });
+        } catch(error) {
+            console.error('Error during password reset confirmation:', error);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+    }
 }
 
 module.exports = AuthController;
