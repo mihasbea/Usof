@@ -1,13 +1,10 @@
 const { pool } = require('../db/db');
 
 class BlacklistedToken {
+
     static async add (tokenHash, expiresAt) {
 
-        if (typeof expiresAt == 'number' && expiresAt < 1e11) {
-            expiry = expiresAt * 1000; 
-        }
-
-        const expiryDate = new Date(expiry);
+        const expiryDate = this.normalizeToDate(expiresAt);
 
         if (isNaN(expiryDate.getTime()) || expiryDate <= new Date()) {
             return null;
@@ -21,6 +18,17 @@ class BlacklistedToken {
         const sql = `SELECT 1 FROM blacklisted_tokens WHERE token_hash = ? AND expires_at > NOW()`;
         const [rows] = await pool.query(sql, [tokenHash]);
         return rows.length > 0;
+    }
+
+    static normalizeToDate(expiresAt) {
+        if (expiresAt instanceof Date) {
+            return expiresAt;
+        }
+        if (typeof expiresAt == 'number') {
+            const ms = expiresAt < 1e11 ? expiresAt * 1000 : expiresAt;
+            return new Date(ms);
+        }
+        return new Date(NaN);
     }
 }
 

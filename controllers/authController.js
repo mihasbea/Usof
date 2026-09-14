@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const BlacklistedToken = require('../models/BlacklistedToken');
+const { sendResetPasswordEmail } = require('../utils/mailer')
 
 class AuthController {
     static async register(req, res) {
@@ -86,6 +87,35 @@ class AuthController {
         } catch (error) {
             console.error('Error during logout:', error);
             return res.status(500).json({message: 'Internal server error'});
+        }
+    }
+
+    static async requestPasswordReset(req, res) {
+        try {
+            const { email } = req.body;
+
+            if (!email) {
+                return res.status(400).json({message: 'Email is required'});
+            }
+
+            const genericMessage = 'A password reset link has been sent.';
+
+            const user = await User.findByEmail(email);
+            if (!user) {
+                return res.status(200).json({ message: genericMessage });
+            }
+
+            const rawToken = crypto.randomBytes(32).toString('hex');
+            const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+            const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+            await User.savePasswordResetToken(user.id, tokenHash, expiresAt);
+            await sendResetPasswordEmail(user.email, rawToken);
+
+            return res.status(200).json({ message: genericMessage });
+        } catch(error) {
+            console.error('Error during password reset request:', error);
+            return res.status(500).json({ message: 'Internal server error' });
         }
     }
 }

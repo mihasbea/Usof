@@ -11,14 +11,15 @@ const pool = mysql.createPool({
 });
 
 async function initDB() {
-    try {
-        const tempConnection = await mysql.createConnection({
+
+    const tempConnection = await mysql.createConnection({
             host: process.env.DB_HOST,
             user: process.env.DB_USER,
             password: process.env.DB_PASSWORD,
             multipleStatements: true
         });
 
+    try {
         const dbNameEscaped = mysql.escapeId(process.env.DB_NAME);
 
         await tempConnection.query(`CREATE DATABASE IF NOT EXISTS ${dbNameEscaped}`);

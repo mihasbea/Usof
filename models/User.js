@@ -30,6 +30,16 @@ class User {
         const [rows] = await pool.query(sql, [login, email]);
         return rows[0];
     }
+
+    static async savePasswordResetToken(userId, tokenHash, expiresAt) {
+        const sql =`
+                UPDATE users
+                SET password_reset_token = ?, password_reset_expires = ?
+                WHERE id = ?
+                `;
+        const [result] = await pool.query(sql,[tokenHash, expiresAt, userId]);
+        return result.affectedRows > 0;
+    }
 }
 
 module.exports = User;
