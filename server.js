@@ -2,10 +2,12 @@ const { initDB } = require('./db/db.js');
 const express = require('express');
 const authRoutes = require('./routes/authRoutes.js');
 const { initCronJobs } = require('./utils/cron');
+const userRoutes = require('./routes/userRoutes.js');
 
 const app = express();
 app.use(express.json());
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 
 async function startServer() {
     try {

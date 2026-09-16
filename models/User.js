@@ -2,14 +2,14 @@ const { pool } = require('../db/db');
 
 class User {
     static async create(userData) {
-        const { login, password, full_name, email} = userData;
+        const { login, password, full_name, email, role = 'user' } = userData;
 
         const sql = `
-            INSERT INTO users (login, password, full_name, email)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (login, password, full_name, email, role)
+            VALUES (?, ?, ?, ?, ?)
             `;
         
-        const [result] = await pool.query(sql, [login, password, full_name, email]);
+        const [result] = await pool.query(sql, [login, password, full_name, email, role]);
         return result.insertId;
     }
 
@@ -28,6 +28,18 @@ class User {
     static async findByLoginOrEmail(login, email) {
         const sql = `SELECT * FROM users WHERE login = ? OR email = ?`;
         const [rows] = await pool.query(sql, [login, email]);
+        return rows[0];
+    }
+
+    static async findAll() {
+        const sql = `SELECT id, login, full_name, email, profile_picture, rating, role, created_at, updated_at FROM users`;
+        const [rows] = await pool.query(sql);
+        return rows;
+    }
+
+    static async findById(id) {
+        const sql = `SELECT id, login, full_name, email, profile_picture, rating, role, created_at, updated_at FROM users WHERE id = ?`;
+        const [rows] = await pool.query(sql, [id]);
         return rows[0];
     }
 
