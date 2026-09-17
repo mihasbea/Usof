@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const BlacklistedToken = require('../models/BlacklistedToken');
-const { sendResetPasswordEmail } = require('../utils/mailer')
+const { sendResetPasswordEmail, sendConfirmationEmail } = require('../utils/mailer')
 
 class AuthController {
     static async register(req, res) {
@@ -23,14 +23,18 @@ class AuthController {
             }
 
             const hashedPassword = await bcrypt.hash(password, 10);
+            const rawToken = crypto.randomBytes(32).toString('hex');
 
             const newUserData = {
                 login: login,
                 password: hashedPassword,
                 full_name: full_name,
-                email: email
+                email: email,
+                email_confirm_token: rawToken
             };
+
             await User.create(newUserData);
+            await sendConfirmationEmail(email, rawToken);
             return res.status(201).json({message: 'User created successfully'});
 
         } catch (error) {
@@ -125,7 +129,7 @@ class AuthController {
             const { new_password, new_password_confirmation } = req.body;
 
             if (!new_password || !new_password_confirmation) {
-                return res.status(400).json({ message: 'Both pasfford fields are required' })
+                return res.status(400).json({ message: 'Both password fields are required' })
             }
             if (new_password !== new_password_confirmation) {
                 return res.status(400).json({ message:'Passwords do not match' });
@@ -147,6 +151,25 @@ class AuthController {
             return res.status(500).json({ message: 'Internal server error' });
         }
     }
+
+    static async confirmEmail(req, res) {
+        try {
+            const { token } = req.params;
+            const user = await User.findByConfirmToken(token);
+
+            if (!user) {
+                return res.status(400).json({ message: 'Invalid email confirmation token' });
+            }
+
+            await User.confirmEmail(user.id);
+            return res.status(200).json({ message: 'Email has been successfully confirmed' });
+
+        } catch(error) {
+            console.error('Error during email confirmation', error);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+    }
+
 }
 
 module.exports = AuthController;

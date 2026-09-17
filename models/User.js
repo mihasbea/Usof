@@ -2,14 +2,14 @@ const { pool } = require('../db/db');
 
 class User {
     static async create(userData) {
-        const { login, password, full_name, email, role = 'user' } = userData;
+        const { login, password, full_name, email, role = 'user', email_confirmed = false, email_confirm_token = null } = userData;
 
         const sql = `
-            INSERT INTO users (login, password, full_name, email, role)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO users (login, password, full_name, email, role, email_confirmed, email_confirm_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             `;
         
-        const [result] = await pool.query(sql, [login, password, full_name, email, role]);
+        const [result] = await pool.query(sql, [login, password, full_name, email, role, email_confirmed, email_confirm_token]);
         return result.insertId;
     }
 
@@ -70,6 +70,45 @@ class User {
         WHERE id = ?
         `;
         const [result] = await pool.query(sql, [hashedNewPass, userId]);
+        return result.affectedRows > 0;
+    }
+
+    static async findByConfirmToken(token) {
+        const sql = `
+        SELECT * FROM users 
+        WHERE email_confirm_token = ? 
+        `;
+        const [rows] = await pool.query(sql,[token]);
+        return rows[0];
+    }
+
+    static async confirmEmail(userId) {
+        const sql = `
+        UPDATE users 
+        SET email_confirmed = ?, email_confirm_token = NULL
+        WHERE id = ?
+        `;
+        const [result] = await pool.query(sql, [true, userId]);
+        return result.affectedRows > 0;
+    }
+
+    static async update(id, updateData) {
+        const keys = Object.keys(updateData);
+        if(keys.length ===0) return false;
+
+        const setClause = keys.map(key => `${key} = ?`). join(',');
+        const values = Object.values(updateData);
+        values.push(id);
+
+        const sql = `UPDATE users SET ${setClause} WHERE id = ?`;
+        const [result] = await pool.query(sql, values);
+
+        return result.affectedRows > 0;
+    }
+
+    static async delete(id) {
+        const sql = `DELETE FROM users WHERE id = ?`;
+        const [result] = await pool.query(sql, [id]);
         return result.affectedRows > 0;
     }
 }

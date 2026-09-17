@@ -3,11 +3,13 @@ const express = require('express');
 const authRoutes = require('./routes/authRoutes.js');
 const { initCronJobs } = require('./utils/cron');
 const userRoutes = require('./routes/userRoutes.js');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 async function startServer() {
     try {

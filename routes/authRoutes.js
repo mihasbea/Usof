@@ -8,5 +8,6 @@ router.post("/login", AuthController.login);
 router.post("/logout", AuthMiddleware, AuthController.logout);
 router.post("/password-reset", AuthController.requestPasswordReset);
 router.post("/password-reset/:confirm_token", AuthController.confirmPassReset);
+router.get('/confirm-email/:token', AuthController.confirmEmail);
 
 module.exports = router;
