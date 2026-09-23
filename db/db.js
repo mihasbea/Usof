@@ -25,12 +25,6 @@ async function initDB() {
         await tempConnection.query(`CREATE DATABASE IF NOT EXISTS ${dbNameEscaped}`);
         await tempConnection.query(`USE ${dbNameEscaped}`);
 
-        const sqlFilePath = path.join(__dirname, 'db.sql');
-        const sql = fs.readFileSync(sqlFilePath, 'utf8');
-
-        await tempConnection.query(sql);
-        console.log('Database initialized successfully.');
-
         return pool;
     } catch(error) {
         console.error('Error initializing database:', error);

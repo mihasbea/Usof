@@ -71,6 +71,15 @@ INSERT IGNORE INTO posts (author_id, title, content, status) VALUES
 (4, 'What are the best practices for responsive web design?', 'I want to make my website responsive and mobile-friendly. What are some best practices for responsive web design?', 'active'),
 (5, 'How to deploy a Django application on AWS?', 'I have developed a Django application and want to deploy it on AWS. What are the steps involved in deploying a Django app on AWS?', 'active');
 
+CREATE TABLE IF NOT EXISTS post_attachments (
+    id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    post_id INT UNSIGNED NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+    file_type ENUM('image', 'video', 'document', 'other') NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS post_categories(
     post_id INT UNSIGNED NOT NULL,
     category_id INT UNSIGNED NOT NULL,
