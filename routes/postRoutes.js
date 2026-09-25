@@ -1,10 +1,11 @@
 const express = require('express');
-const router = express.Router();
-const PostController = require('../controllers/PostController');
-const AuthMiddleware = require('../middlewares/authMiddleware');
+const PostController = require('../controllers/postController');
+const authMiddleware = require('../middlewares/authMiddleware');
 const uploadPostMedia = require('../middlewares/uploadPostMedia');
 
-router.post('/', AuthMiddleware, uploadPostMedia, PostController.create);
+const router = express.Router();
+
+router.post('/', authMiddleware, uploadPostMedia, PostController.create);
 router.get('/', PostController.getAll);
 router.get('/:post_id', PostController.getById);
 

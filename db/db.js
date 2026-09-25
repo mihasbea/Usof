@@ -1,40 +1,33 @@
 const mysql = require('mysql2/promise');
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config();
 
-const pool = mysql.createPool({
+const connectionOptions = {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-});
+};
 
-async function initDB() {
+const pool = mysql.createPool({ ...connectionOptions, database: process.env.DB_NAME });
 
-    const tempConnection = await mysql.createConnection({
-            host: process.env.DB_HOST,
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            multipleStatements: true
-        });
-
+// Creates the database named in DB_NAME if it does not exist yet.
+async function ensureDatabaseExists() {
+    const connection = await mysql.createConnection(connectionOptions);
     try {
-        const dbNameEscaped = mysql.escapeId(process.env.DB_NAME);
-
-        await tempConnection.query(`CREATE DATABASE IF NOT EXISTS ${dbNameEscaped}`);
-        await tempConnection.query(`USE ${dbNameEscaped}`);
-
-        return pool;
-    } catch(error) {
-        console.error('Error initializing database:', error);
-        process.exit(1);
+        const dbName = mysql.escapeId(process.env.DB_NAME);
+        await connection.query(
+            `CREATE DATABASE IF NOT EXISTS ${dbName} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+        );
     } finally {
-        await tempConnection.end();
+        await connection.end();
     }
+}
+
+function isDuplicateEntryError(error) {
+    return error.code === 'ER_DUP_ENTRY';
 }
 
 module.exports = {
     pool,
-    initDB
+    connectionOptions,
+    ensureDatabaseExists,
+    isDuplicateEntryError,
 };

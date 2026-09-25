@@ -1,37 +1,41 @@
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
 const BlacklistedToken = require('../models/BlacklistedToken');
+const User = require('../models/User');
+const { hashToken } = require('../utils/security');
 
-const AuthMiddleware = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
+// Checks the "Authorization: Bearer <token>" header and puts the current user into req.user.
+async function authMiddleware(req, res, next) {
+    const [scheme, token] = (req.headers.authorization ?? '').split(' ');
 
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) {
+    if (scheme !== 'Bearer' || !token) {
         return res.status(401).json({ message: 'Access token is missing' });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET, async(err, decodedUser) => {
-        if (err) {
-            return res.status(403).json({ message: 'Invalid access token' });
+    let payload;
+    try {
+        payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch {
+        return res.status(401).json({ message: 'Invalid or expired access token' });
+    }
+
+    try {
+        if (await BlacklistedToken.isBlacklisted(hashToken(token))) {
+            return res.status(401).json({ message: 'Token has been revoked' });
         }
 
-        try {
-            const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-            const isBlacklisted = await BlacklistedToken.isBlacklisted(tokenHash);
-
-            if (isBlacklisted) {
-                return res.status(403).json({ message: 'Token has been revoked' });
-            }
-
-            req.user = decodedUser;
-            req.token = token;
-            next();
-        } catch (error) {
-            console.error('Error checking blacklisted token:', error);
-            return res.status(500).json({ message: 'Internal server error' });
+        // The role is read from the database, so a deleted or demoted user loses access at once.
+        const user = await User.findById(payload.id);
+        if (!user) {
+            return res.status(401).json({ message: 'User no longer exists' });
         }
-    });
-};
 
-module.exports = AuthMiddleware;
+        req.user = { id: user.id, login: user.login, role: user.role, exp: payload.exp };
+        req.token = token;
+        return next();
+    } catch (error) {
+        console.error('Error during authentication:', error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+}
+
+module.exports = authMiddleware;

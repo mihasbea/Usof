@@ -1,30 +1,31 @@
-const fs = require('fs');
+require('dotenv').config({ quiet: true });
+
+const fs = require('fs/promises');
 const path = require('path');
-const { pool } = require('./db');
+const mysql = require('mysql2/promise');
+const { connectionOptions, ensureDatabaseExists } = require('./db');
 
-async function initializeDB() {
-    let connection;
+// Creates the database, its tables and the seed data. Safe to run more than once.
+async function initializeDatabase() {
+    await ensureDatabaseExists();
+
+    const sql = await fs.readFile(path.join(__dirname, 'db.sql'), 'utf8');
+    const connection = await mysql.createConnection({
+        ...connectionOptions,
+        database: process.env.DB_NAME,
+        multipleStatements: true,
+    });
+
     try {
-        const sqlFilePath = path.join(__dirname, 'db.sql');
-        const sqlContent = fs.readFileSync(sqlFilePath, 'utf8');
-
-        const queries = sqlContent
-            .split(';')
-            .map(query => query.trim())
-            .filter(query => query.length > 0);
-
-        for (const query of queries) {
-            await pool.query(query);
-        }
-
-        console.log('Database has been successfully initialized');
-        process.exit(0);
-    } catch (error) {
-        console.error('Database initialization error:', error);
-        process.exit(1);
+        await connection.query(sql);
     } finally {
-        if (connection) await connection.end();
+        await connection.end();
     }
 }
 
-initializeDB();
+initializeDatabase()
+    .then(() => console.log('Database has been successfully initialized'))
+    .catch((error) => {
+        console.error('Database initialization error:', error);
+        process.exitCode = 1;
+    });

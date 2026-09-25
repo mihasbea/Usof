@@ -1,16 +1,18 @@
-const express = require("express");
-const router = express.Router();
-const UserController = require("../controllers/userController")
-const AuthMiddleware = require("../middlewares/authMiddleware");
-const requireAdmin = require("../middlewares/requireAdmin");
+const express = require('express');
+const UserController = require('../controllers/userController');
+const authMiddleware = require('../middlewares/authMiddleware');
+const requireAdmin = require('../middlewares/requireAdmin');
 const requireOwnerOrAdmin = require('../middlewares/requireOwnerOrAdmin');
-const upload = require('../middlewares/uploadAvatar');
+const uploadAvatar = require('../middlewares/uploadAvatar');
+
+const router = express.Router();
 
 router.get('/', UserController.getAll);
-router.patch('/avatar', AuthMiddleware, upload.single('avatar'), UserController.uploadAvatar);
+// Must stay above '/:user_id', otherwise "avatar" would be read as a user ID.
+router.patch('/avatar', authMiddleware, uploadAvatar, UserController.uploadAvatar);
 router.get('/:user_id', UserController.getById);
-router.post('/', AuthMiddleware, requireAdmin, UserController.create);
-router.patch('/:user_id', AuthMiddleware, requireOwnerOrAdmin, UserController.update);
-router.delete('/:user_id', AuthMiddleware, requireOwnerOrAdmin, UserController.delete);
+router.post('/', authMiddleware, requireAdmin, UserController.create);
+router.patch('/:user_id', authMiddleware, requireOwnerOrAdmin, UserController.update);
+router.delete('/:user_id', authMiddleware, requireOwnerOrAdmin, UserController.delete);
 
 module.exports = router;

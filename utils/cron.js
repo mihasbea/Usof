@@ -1,13 +1,14 @@
 const cron = require('node-cron');
-const { pool } = require('../db/db'); 
+const BlacklistedToken = require('../models/BlacklistedToken');
 
 function initCronJobs() {
+    // Every day at midnight
     cron.schedule('0 0 * * *', async () => {
         try {
-            const [result] = await pool.query('DELETE FROM blacklisted_tokens WHERE expires_at < NOW()');
-            console.log(`[CRON] Expired tokens cleaned. Deleted rows: ${result.affectedRows}`);
-        } catch (err) {
-            console.error('[CRON] Token cleanup error:', err);
+            const deletedCount = await BlacklistedToken.deleteExpired();
+            console.log(`[CRON] Expired tokens cleaned. Deleted rows: ${deletedCount}`);
+        } catch (error) {
+            console.error('[CRON] Token cleanup error:', error);
         }
     });
 

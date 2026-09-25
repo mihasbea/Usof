@@ -1,96 +1,114 @@
-const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
+const { isDuplicateEntryError } = require('../db/db');
 const BlacklistedToken = require('../models/BlacklistedToken');
-const { sendResetPasswordEmail, sendConfirmationEmail } = require('../utils/mailer')
+const User = require('../models/User');
+const { sendResetPasswordEmail, sendConfirmationEmail } = require('../utils/mailer');
+const { generateToken, hashPassword, hashToken } = require('../utils/security');
+const { isNonEmptyString, validateUserFields } = require('../utils/validators');
+
+const ACCESS_TOKEN_LIFETIME = '3h';
+const PASSWORD_RESET_LIFETIME_MS = 60 * 60 * 1000;
 
 class AuthController {
     static async register(req, res) {
         try {
-            const {login, password, password_confirmation, full_name, email} = req.body;
+            const { login, password, password_confirmation, full_name, email } = req.body;
 
             if (!login || !password || !password_confirmation || !full_name || !email) {
-                return res.status(400).json({message: 'All fields are required'});
+                return res.status(400).json({ message: 'All fields are required' });
             }
 
-            if (password !== password_confirmation) {
-                return res.status(400).json({message: 'Passwords do not match'});
+            const validationError = validateUserFields({
+                login,
+                password,
+                password_confirmation,
+                full_name,
+                email,
+            });
+            if (validationError) {
+                return res.status(400).json({ message: validationError });
             }
 
-            if (await User.findByEmail(email) || await User.findByLogin(login)) {
-                return res.status(409).json({message: 'Email or login already in use'});
+            if (await User.findByLoginOrEmail(login, email)) {
+                return res.status(409).json({ message: 'Email or login already in use' });
             }
 
-            const hashedPassword = await bcrypt.hash(password, 10);
-            const rawToken = crypto.randomBytes(32).toString('hex');
+            const confirmToken = generateToken();
+            const userId = await User.create({
+                login,
+                password: await hashPassword(password),
+                full_name,
+                email,
+                email_confirm_token: hashToken(confirmToken),
+            });
 
-            const newUserData = {
-                login: login,
-                password: hashedPassword,
-                full_name: full_name,
-                email: email,
-                email_confirm_token: rawToken
-            };
+            try {
+                await sendConfirmationEmail(email, confirmToken);
+            } catch (error) {
+                // Without the email the account could never be confirmed, so let the user register again.
+                await User.delete(userId);
+                console.error('Error sending confirmation email:', error);
+                return res
+                    .status(502)
+                    .json({ message: 'Could not send the confirmation email, please try again later' });
+            }
 
-            await User.create(newUserData);
-            await sendConfirmationEmail(email, rawToken);
-            return res.status(201).json({message: 'User created successfully'});
-
+            return res.status(201).json({ message: 'User created successfully' });
         } catch (error) {
+            if (isDuplicateEntryError(error)) {
+                return res.status(409).json({ message: 'Email or login already in use' });
+            }
             console.error('Error during registration:', error);
-            return res.status(500).json({message: 'Internal server error'});
+            return res.status(500).json({ message: 'Internal server error' });
         }
     }
 
     static async login(req, res) {
         try {
-            const {login, email, password} = req.body;
+            const { login, email, password } = req.body;
 
-            if ((!login && !email) || !password) {
-                return res.status(400).json({message: 'Missing required fields (login/email and password)'});
+            const hasLogin = isNonEmptyString(login);
+            const hasEmail = isNonEmptyString(email);
+            if (hasLogin === hasEmail || !isNonEmptyString(password)) {
+                return res
+                    .status(400)
+                    .json({ message: 'Provide a password and either a login or an email' });
             }
 
-            let user = null;
-            if (login) {
-                user = await User.findByLogin(login);
-            }
-            if (email) {
-                user = await User.findByEmail(email);
-            }
+            const user = hasLogin ? await User.findByLogin(login) : await User.findByEmail(email);
+            const isPasswordCorrect = user && (await bcrypt.compare(password, user.password));
 
-            if (!user) {
-                return res.status(401).json({message: 'Invalid login or email'});
+            // One message for both cases, so nobody can find out which logins exist.
+            if (!isPasswordCorrect) {
+                return res.status(401).json({ message: 'Invalid credentials' });
             }
 
             if (!user.email_confirmed) {
-                return res.status(403).json({message: 'Email not confirmed'});
+                return res.status(403).json({ message: 'Email not confirmed' });
             }
 
-            const isMatch = await bcrypt.compare(password, user.password);
-            if (!isMatch) {
-                return res.status(401).json({message: 'Invalid password'});
-            }
-
-            const token = jwt.sign({ id: user.id, login: user.login, role: user.role }, process.env.JWT_SECRET, { expiresIn: '3h' });
+            const token = jwt.sign(
+                { id: user.id, login: user.login, role: user.role },
+                process.env.JWT_SECRET,
+                { expiresIn: ACCESS_TOKEN_LIFETIME }
+            );
 
             return res.status(200).json({ message: 'Login successful', token });
         } catch (error) {
             console.error('Error during login:', error);
-            return res.status(500).json({message: 'Internal server error'});
+            return res.status(500).json({ message: 'Internal server error' });
         }
     }
 
     static async logout(req, res) {
         try {
-            const token = req.token;
-            const expiresAt = new Date(req.user.exp * 1000); //to milliseconds
-            const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-            await BlacklistedToken.add(tokenHash, expiresAt);
+            const expiresAt = new Date(req.user.exp * 1000); // JWT "exp" is in seconds
+            await BlacklistedToken.add(hashToken(req.token), expiresAt);
             return res.status(200).json({ message: 'Logout successful' });
         } catch (error) {
             console.error('Error during logout:', error);
-            return res.status(500).json({message: 'Internal server error'});
+            return res.status(500).json({ message: 'Internal server error' });
         }
     }
 
@@ -98,26 +116,26 @@ class AuthController {
         try {
             const { email } = req.body;
 
-            if (!email) {
-                return res.status(400).json({message: 'Email is required'});
+            if (!isNonEmptyString(email)) {
+                return res.status(400).json({ message: 'Email is required' });
             }
 
-            const genericMessage = 'A password reset link has been sent.';
+            // The same answer whether or not the email exists, so nobody can find out which emails are registered.
+            const genericMessage = 'If this email is registered, a password reset link has been sent.';
 
             const user = await User.findByEmail(email);
             if (!user) {
                 return res.status(200).json({ message: genericMessage });
             }
 
-            const rawToken = crypto.randomBytes(32).toString('hex');
-            const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-            const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+            const resetToken = generateToken();
+            const expiresAt = new Date(Date.now() + PASSWORD_RESET_LIFETIME_MS);
 
-            await User.savePasswordResetToken(user.id, tokenHash, expiresAt);
-            await sendResetPasswordEmail(user.email, rawToken);
+            await User.savePasswordResetToken(user.id, hashToken(resetToken), expiresAt);
+            await sendResetPasswordEmail(user.email, resetToken);
 
             return res.status(200).json({ message: genericMessage });
-        } catch(error) {
+        } catch (error) {
             console.error('Error during password reset request:', error);
             return res.status(500).json({ message: 'Internal server error' });
         }
@@ -129,24 +147,26 @@ class AuthController {
             const { new_password, new_password_confirmation } = req.body;
 
             if (!new_password || !new_password_confirmation) {
-                return res.status(400).json({ message: 'Both password fields are required' })
-            }
-            if (new_password !== new_password_confirmation) {
-                return res.status(400).json({ message:'Passwords do not match' });
+                return res.status(400).json({ message: 'Both password fields are required' });
             }
 
-            const tokenHash = crypto.createHash('sha256').update(confirm_token).digest('hex');
-            const user = await User.findByValidResetToken(tokenHash);
+            const validationError = validateUserFields({
+                password: new_password,
+                password_confirmation: new_password_confirmation,
+            });
+            if (validationError) {
+                return res.status(400).json({ message: validationError });
+            }
 
+            const user = await User.findByValidResetToken(hashToken(confirm_token));
             if (!user) {
                 return res.status(400).json({ message: 'Invalid or expired password reset token' });
             }
 
-            const hashedPassword = await bcrypt.hash(new_password, 10);
-            await User.updatePassAndClearResetToken(user.id, hashedPassword);
+            await User.updatePassAndClearResetToken(user.id, await hashPassword(new_password));
 
             return res.status(200).json({ message: 'Password has been successfully reset' });
-        } catch(error) {
+        } catch (error) {
             console.error('Error during password reset confirmation:', error);
             return res.status(500).json({ message: 'Internal server error' });
         }
@@ -154,8 +174,7 @@ class AuthController {
 
     static async confirmEmail(req, res) {
         try {
-            const { token } = req.params;
-            const user = await User.findByConfirmToken(token);
+            const user = await User.findByConfirmToken(hashToken(req.params.token));
 
             if (!user) {
                 return res.status(400).json({ message: 'Invalid email confirmation token' });
@@ -163,13 +182,11 @@ class AuthController {
 
             await User.confirmEmail(user.id);
             return res.status(200).json({ message: 'Email has been successfully confirmed' });
-
-        } catch(error) {
-            console.error('Error during email confirmation', error);
+        } catch (error) {
+            console.error('Error during email confirmation:', error);
             return res.status(500).json({ message: 'Internal server error' });
         }
     }
-
 }
 
 module.exports = AuthController;
