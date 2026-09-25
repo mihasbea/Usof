@@ -1,32 +1,43 @@
 {
-  "name": "usof",
-  "version": "1.0.0",
-  "description": "RESTful API for USOF - a knowledge-sharing Q&amp;A platform for developers. Built with Node.js, Express, and MySQL, featuring a custom rating system, role-based access, and content subscriptions.",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mihasbea/Usof.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/mihasbea/Usof/issues"
-  },
-  "homepage": "https://github.com/mihasbea/Usof#readme",
-  "dependencies": {
-    "bcrypt": "^6.0.0",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "multer": "^2.4.0",
-    "mysql2": "^3.24.3",
-    "node-cron": "^4.6.0",
-    "nodemailer": "^10.0.10",
-    "path": "^0.12.7"
-  }
+    "name": "usof",
+    "version": "1.0.0",
+    "description": "RESTful API for USOF - a knowledge-sharing Q&A platform for developers. Built with Node.js, Express, and MySQL, featuring a custom rating system, role-based access, and content subscriptions.",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node --watch server.js",
+        "init-db": "node db/init-db.js",
+        "lint": "eslint .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/mihasbea/Usof.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "bugs": {
+        "url": "https://github.com/mihasbea/Usof/issues"
+    },
+    "homepage": "https://github.com/mihasbea/Usof#readme",
+    "dependencies": {
+        "bcrypt": "^6.0.0",
+        "dotenv": "^17.4.2",
+        "express": "^5.2.1",
+        "jsonwebtoken": "^9.0.3",
+        "multer": "^2.4.0",
+        "mysql2": "^3.24.3",
+        "node-cron": "^4.6.0",
+        "nodemailer": "^10.0.10"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "eslint": "^10.11.0",
+        "eslint-config-prettier": "^10.1.8",
+        "globals": "^17.12.0",
+        "prettier": "^3.9.9"
+    }
 }

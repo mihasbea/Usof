@@ -49,9 +49,9 @@ class AuthController {
                 // Without the email the account could never be confirmed, so let the user register again.
                 await User.delete(userId);
                 console.error('Error sending confirmation email:', error);
-                return res
-                    .status(502)
-                    .json({ message: 'Could not send the confirmation email, please try again later' });
+                return res.status(502).json({
+                    message: 'Could not send the confirmation email, please try again later',
+                });
             }
 
             return res.status(201).json({ message: 'User created successfully' });
@@ -121,7 +121,8 @@ class AuthController {
             }
 
             // The same answer whether or not the email exists, so nobody can find out which emails are registered.
-            const genericMessage = 'If this email is registered, a password reset link has been sent.';
+            const genericMessage =
+                'If this email is registered, a password reset link has been sent.';
 
             const user = await User.findByEmail(email);
             if (!user) {

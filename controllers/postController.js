@@ -95,7 +95,8 @@ class PostController {
         try {
             const { page: pageParam, limit: limitParam } = req.query;
             const page = pageParam === undefined ? 1 : parsePositiveInt(pageParam);
-            const limit = limitParam === undefined ? DEFAULT_PAGE_SIZE : parsePositiveInt(limitParam);
+            const limit =
+                limitParam === undefined ? DEFAULT_PAGE_SIZE : parsePositiveInt(limitParam);
 
             if (!page || !limit || limit > MAX_PAGE_SIZE) {
                 return res.status(400).json({
