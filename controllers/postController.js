@@ -1,38 +1,30 @@
 const Category = require('../models/Category');
 const Post = require('../models/Post');
-const { removeFiles, toPublicPath } = require('../utils/uploads');
-const { MAX_STRING_LENGTH, isNonEmptyString, parsePositiveInt } = require('../utils/validators');
+const { removeFiles, toDiskPath, toPublicPath } = require('../utils/uploads');
+const {
+    MAX_STRING_LENGTH,
+    parseDate,
+    parseIdList,
+    parsePositiveInt,
+    validateText,
+} = require('../utils/validators');
 
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 100;
+const POST_STATUSES = ['active', 'inactive'];
+const SORT_OPTIONS = ['likes', 'date'];
+const ORDER_OPTIONS = ['asc', 'desc'];
 
-/**
- * Accepts "1,2,3" (form-data) or [1, 2, 3] (JSON).
- * @returns {number[] | null} unique category IDs, or null when the value is invalid
- */
-function parseCategoryIds(categories) {
-    const rawIds = typeof categories === 'string' ? categories.split(',') : categories;
-    if (!Array.isArray(rawIds) || rawIds.length === 0) {
-        return null;
-    }
-
-    const ids = rawIds.map(parsePositiveInt);
-    return ids.includes(null) ? null : [...new Set(ids)];
+function validateTitle(title) {
+    return validateText(title, 'Title', MAX_STRING_LENGTH);
 }
 
-/**
- * Checks the body of a new post.
- * @returns {Promise<{ error: string } | { title: string, content: string, categoryIds: number[] }>}
- */
-async function validatePostInput({ title, content, categories }) {
-    if (!isNonEmptyString(title) || !isNonEmptyString(content)) {
-        return { error: 'Title and content are required' };
-    }
-    if (title.trim().length > MAX_STRING_LENGTH) {
-        return { error: `Title must be at most ${MAX_STRING_LENGTH} characters long` };
-    }
+function validateContent(content) {
+    return validateText(content, 'Content');
+}
 
-    const categoryIds = parseCategoryIds(categories);
+async function validateCategories(categories) {
+    const categoryIds = parseIdList(categories);
     if (!categoryIds) {
         return { error: 'Categories must be a non-empty list of category IDs' };
     }
@@ -43,7 +35,53 @@ async function validatePostInput({ title, content, categories }) {
         return { error: `Categories not found: ${missingIds.join(', ')}` };
     }
 
-    return { title: title.trim(), content: content.trim(), categoryIds };
+    return { categoryIds };
+}
+
+function parseListQuery(query) {
+    const page = query.page === undefined ? 1 : parsePositiveInt(query.page);
+    const limit = query.limit === undefined ? DEFAULT_PAGE_SIZE : parsePositiveInt(query.limit);
+    if (!page || !limit || limit > MAX_PAGE_SIZE) {
+        return {
+            error: `Page must be a positive integer and limit must be between 1 and ${MAX_PAGE_SIZE}`,
+        };
+    }
+
+    const { sort = 'likes', order = 'desc', status } = query;
+    if (!SORT_OPTIONS.includes(sort)) {
+        return { error: `Sort must be one of: ${SORT_OPTIONS.join(', ')}` };
+    }
+    if (!ORDER_OPTIONS.includes(order)) {
+        return { error: `Order must be one of: ${ORDER_OPTIONS.join(', ')}` };
+    }
+    if (status !== undefined && !POST_STATUSES.includes(status)) {
+        return { error: `Status must be one of: ${POST_STATUSES.join(', ')}` };
+    }
+
+    let categoryIds;
+    if (query.categories !== undefined) {
+        categoryIds = parseIdList(query.categories);
+        if (!categoryIds) {
+            return { error: 'Categories must be a comma-separated list of category IDs' };
+        }
+    }
+
+    const dateFrom = query.date_from === undefined ? undefined : parseDate(query.date_from);
+    const dateTo = query.date_to === undefined ? undefined : parseDate(query.date_to);
+    if (dateFrom === null || dateTo === null) {
+        return { error: 'Dates must be valid dates in the YYYY-MM-DD format' };
+    }
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+        return { error: 'date_from must not be later than date_to' };
+    }
+
+    return {
+        page,
+        limit,
+        sort,
+        order,
+        filters: { status, categoryIds, dateFrom, dateTo },
+    };
 }
 
 function getAttachmentType(mimetype) {
@@ -55,15 +93,22 @@ function getAttachmentType(mimetype) {
 
 class PostController {
     static async create(req, res) {
-        // Multer has already saved the files, so every failure path must delete them.
         const files = req.files ?? [];
         const filePaths = files.map((file) => file.path);
 
         try {
-            const input = await validatePostInput(req.body);
-            if (input.error) {
+            const { title, content, categories } = req.body;
+
+            const textError = validateTitle(title) ?? validateContent(content);
+            if (textError) {
                 await removeFiles(filePaths);
-                return res.status(400).json({ message: input.error });
+                return res.status(400).json({ message: textError });
+            }
+
+            const { error: categoriesError, categoryIds } = await validateCategories(categories);
+            if (categoriesError) {
+                await removeFiles(filePaths);
+                return res.status(400).json({ message: categoriesError });
             }
 
             const attachments = files.map((file) => ({
@@ -73,9 +118,9 @@ class PostController {
 
             const postId = await Post.create({
                 author_id: req.user.id,
-                title: input.title,
-                content: input.content,
-                categoryIds: input.categoryIds,
+                title: title.trim(),
+                content: content.trim(),
+                categoryIds,
                 attachments,
             });
 
@@ -93,28 +138,26 @@ class PostController {
 
     static async getAll(req, res) {
         try {
-            const { page: pageParam, limit: limitParam } = req.query;
-            const page = pageParam === undefined ? 1 : parsePositiveInt(pageParam);
-            const limit =
-                limitParam === undefined ? DEFAULT_PAGE_SIZE : parsePositiveInt(limitParam);
-
-            if (!page || !limit || limit > MAX_PAGE_SIZE) {
-                return res.status(400).json({
-                    message: `Page must be a positive integer and limit must be between 1 and ${MAX_PAGE_SIZE}`,
-                });
+            const query = parseListQuery(req.query);
+            if (query.error) {
+                return res.status(400).json({ message: query.error });
             }
 
-            const offset = (page - 1) * limit;
-            const [totalPosts, posts] = await Promise.all([
-                Post.countActive(),
-                Post.getAll(limit, offset),
-            ]);
+            const { page, limit, sort, order, filters } = query;
+            const { posts, total } = await Post.findAll({
+                user: req.user,
+                filters,
+                sort,
+                order,
+                limit,
+                offset: (page - 1) * limit,
+            });
 
             return res.status(200).json({
                 data: posts,
                 pagination: {
-                    total_posts: totalPosts,
-                    total_pages: Math.ceil(totalPosts / limit),
+                    total_posts: total,
+                    total_pages: Math.ceil(total / limit),
                     current_page: page,
                     limit,
                 },
@@ -127,19 +170,115 @@ class PostController {
 
     static async getById(req, res) {
         try {
-            const postId = parsePositiveInt(req.params.post_id);
-            if (!postId) {
-                return res.status(400).json({ message: 'Invalid post ID format' });
-            }
-
-            const post = await Post.getById(postId);
-            if (!post) {
-                return res.status(404).json({ message: 'Post not found' });
-            }
-
+            const post = await Post.getById(req.post.id);
             return res.status(200).json(post);
         } catch (error) {
-            console.error(`Error fetching post ID ${req.params.post_id}:`, error);
+            console.error(`Error fetching post ID ${req.post.id}:`, error);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+    }
+
+    static async getCategories(req, res) {
+        try {
+            const categories = await Post.getCategories(req.post.id);
+            return res.status(200).json(categories);
+        } catch (error) {
+            console.error(`Error fetching categories of post ID ${req.post.id}:`, error);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+    }
+
+    static async update(req, res) {
+        try {
+            const isAuthor = req.post.author_id === req.user.id;
+            const isAdmin = req.user.role === 'admin';
+
+            if (!isAuthor && !isAdmin) {
+                return res
+                    .status(403)
+                    .json({ message: 'Only the author or an admin can update this post' });
+            }
+
+            const { title, content, categories, status } = req.body;
+            const changes = {};
+
+            if ((title !== undefined || content !== undefined) && !isAuthor) {
+                return res
+                    .status(403)
+                    .json({ message: 'Only the author can change the title and content' });
+            }
+            if (status !== undefined && !isAdmin) {
+                return res.status(403).json({ message: 'Only an admin can change the status' });
+            }
+
+            if (title !== undefined) {
+                const titleError = validateTitle(title);
+                if (titleError) {
+                    return res.status(400).json({ message: titleError });
+                }
+                changes.title = title.trim();
+            }
+
+            if (content !== undefined) {
+                const contentError = validateContent(content);
+                if (contentError) {
+                    return res.status(400).json({ message: contentError });
+                }
+                changes.content = content.trim();
+            }
+
+            if (status !== undefined) {
+                if (!POST_STATUSES.includes(status)) {
+                    return res
+                        .status(400)
+                        .json({ message: `Status must be one of: ${POST_STATUSES.join(', ')}` });
+                }
+                changes.status = status;
+            }
+
+            let categoryIds;
+            if (categories !== undefined) {
+                const result = await validateCategories(categories);
+                if (result.error) {
+                    return res.status(400).json({ message: result.error });
+                }
+                categoryIds = result.categoryIds;
+            }
+
+            if (Object.keys(changes).length === 0 && !categoryIds) {
+                return res.status(400).json({
+                    message:
+                        'Provide at least one field to update: title, content, categories, status',
+                });
+            }
+
+            await Post.update(req.post.id, changes, categoryIds);
+            const post = await Post.getById(req.post.id);
+
+            return res.status(200).json({ message: 'Post updated successfully', post });
+        } catch (error) {
+            console.error(`Error updating post ID ${req.post.id}:`, error);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+    }
+
+    static async delete(req, res) {
+        try {
+            const isAuthor = req.post.author_id === req.user.id;
+            const isAdmin = req.user.role === 'admin';
+
+            if (!isAuthor && !isAdmin) {
+                return res
+                    .status(403)
+                    .json({ message: 'Only the author or an admin can delete this post' });
+            }
+
+            const attachmentPaths = await Post.delete(req.post.id);
+            await removeFiles(attachmentPaths.map(toDiskPath));
+
+            return res.status(200).json({ message: 'Post deleted successfully' });
+        } catch (error) {
+            console.error(`Error deleting post ID ${req.post.id}:`, error);
             return res.status(500).json({ message: 'Internal server error' });
         }
     }

@@ -8,7 +8,6 @@ const connectionOptions = {
 
 const pool = mysql.createPool({ ...connectionOptions, database: process.env.DB_NAME });
 
-// Creates the database named in DB_NAME if it does not exist yet.
 async function ensureDatabaseExists() {
     const connection = await mysql.createConnection(connectionOptions);
     try {
@@ -21,6 +20,22 @@ async function ensureDatabaseExists() {
     }
 }
 
+async function withTransaction(callback) {
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+        const result = await callback(connection);
+        await connection.commit();
+        return result;
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
+
 function isDuplicateEntryError(error) {
     return error.code === 'ER_DUP_ENTRY';
 }
@@ -29,5 +44,6 @@ module.exports = {
     pool,
     connectionOptions,
     ensureDatabaseExists,
+    withTransaction,
     isDuplicateEntryError,
 };

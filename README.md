@@ -74,11 +74,35 @@ Protected endpoints need the header `Authorization: Bearer <token>`; the token c
 
 ### Posts — `/api/posts`
 
-| Method | Path        | Description                                                                                 |
-| ------ | ----------- | ------------------------------------------------------------------------------------------- |
-| GET    | `/`         | Active posts, `?page=1&limit=10` (limit up to 100)                                          |
-| GET    | `/:post_id` | One post with its categories and attachments                                                |
-| POST   | `/`         | `title`, `content`, `categories` (`"1,2"` or `[1, 2]`), up to 10 `attachments` files (auth) |
+Who sees what: guests see active posts and comments; a logged-in user also sees their own inactive ones; an admin sees everything. A hidden post answers `404`, the same as a missing one. An inactive post is locked: it can't get new comments or likes.
+
+| Method | Path                   | Access       | Description                                                                          |
+| ------ | ---------------------- | ------------ | ------------------------------------------------------------------------------------ |
+| GET    | `/`                    | public       | Posts the caller may see, paginated, sorted and filtered (see below)                 |
+| POST   | `/`                    | auth         | `title`, `content`, `categories` (`"1,2"` or `[1, 2]`), up to 10 `attachments` files |
+| GET    | `/:post_id`            | public       | The post with its like counts, categories and attachments                            |
+| PATCH  | `/:post_id`            | author/admin | Author: `title`, `content`, `categories`. Admin: `categories`, `status`              |
+| DELETE | `/:post_id`            | author/admin | Deletes the post with its comments, likes and files                                  |
+| GET    | `/:post_id/categories` | public       | The post's categories                                                                |
+| GET    | `/:post_id/comments`   | public       | The post's comments, oldest first                                                    |
+| POST   | `/:post_id/comments`   | auth         | `content`; only under active posts                                                   |
+| GET    | `/:post_id/like`       | public       | All likes and dislikes under the post                                                |
+| POST   | `/:post_id/like`       | auth         | `type`: `like` (default) or `dislike`; one per user, sending the other type switches |
+| DELETE | `/:post_id/like`       | auth         | Removes your own like or dislike                                                     |
+
+Query parameters of `GET /api/posts`:
+
+| Parameter              | Values                           | Default |
+| ---------------------- | -------------------------------- | ------- |
+| `page`                 | positive integer                 | `1`     |
+| `limit`                | 1–100                            | `10`    |
+| `sort`                 | `likes`, `date`                  | `likes` |
+| `order`                | `asc`, `desc`                    | `desc`  |
+| `status`               | `active`, `inactive`             | —       |
+| `categories`           | category IDs, e.g. `1,3`         | —       |
+| `date_from`, `date_to` | `YYYY-MM-DD`, both days included | —       |
+
+A user's `rating` is the number of likes minus dislikes under all their posts and comments. It is updated in the same transaction as every like change.
 
 ## Scripts
 

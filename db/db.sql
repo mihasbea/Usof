@@ -1,6 +1,3 @@
--- Seed rows have explicit IDs, so INSERT IGNORE skips them when this file is run again.
--- Every seeded user's password is: Password123
-
 CREATE TABLE IF NOT EXISTS users (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     login VARCHAR(255) NOT NULL UNIQUE,
@@ -188,3 +185,12 @@ INSERT IGNORE INTO category_subscriptions (user_id, category_id) VALUES
 (4, 2),
 (5, 3),
 (1, 4);
+
+UPDATE users u
+SET rating = (
+    SELECT COALESCE(SUM(IF(l.type = 'like', 1, -1)), 0)
+    FROM likes l
+    LEFT JOIN posts p ON l.post_id = p.id
+    LEFT JOIN comments c ON l.comment_id = c.id
+    WHERE p.author_id = u.id OR c.author_id = u.id
+);

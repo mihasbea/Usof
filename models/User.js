@@ -1,8 +1,6 @@
-const { pool } = require('../db/db');
+const { pool, withTransaction } = require('../db/db');
 
-// Fields anyone may see. The email is left out on purpose.
 const PUBLIC_FIELDS = 'id, login, full_name, profile_picture, rating, role, created_at';
-// Fields for the server's own use. The password and tokens are left out.
 const PROFILE_FIELDS = `${PUBLIC_FIELDS}, email, updated_at`;
 
 class User {
@@ -114,11 +112,6 @@ class User {
         return result.affectedRows > 0;
     }
 
-    /**
-     * Updates the given columns of a user.
-     * @param {number} id
-     * @param {object} updateData - column names mapped to new values; the caller must whitelist the keys
-     */
     static async update(id, updateData) {
         const columns = Object.keys(updateData);
         if (columns.length === 0) {
@@ -132,9 +125,53 @@ class User {
     }
 
     static async delete(id) {
-        const sql = 'DELETE FROM users WHERE id = ?';
-        const [result] = await pool.query(sql, [id]);
-        return result.affectedRows > 0;
+        return withTransaction(async (db) => {
+            const affectedSql = `
+                SELECT p.author_id AS user_id
+                FROM likes l
+                JOIN posts p ON l.post_id = p.id
+                WHERE l.author_id = ?
+                UNION
+                SELECT c.author_id
+                FROM likes l
+                JOIN comments c ON l.comment_id = c.id
+                WHERE l.author_id = ?
+                UNION
+                SELECT c.author_id
+                FROM comments c
+                JOIN posts p ON c.post_id = p.id
+                WHERE p.author_id = ?
+            `;
+            const [affectedRows] = await db.query(affectedSql, [id, id, id]);
+
+            const [result] = await db.query('DELETE FROM users WHERE id = ?', [id]);
+
+            const affectedUserIds = affectedRows
+                .map((row) => row.user_id)
+                .filter((userId) => userId !== id);
+            await User.recalculateRatings(affectedUserIds, db);
+
+            return result.affectedRows > 0;
+        });
+    }
+
+    static async recalculateRatings(userIds, db = pool) {
+        if (userIds.length === 0) {
+            return;
+        }
+
+        const sql = `
+            UPDATE users u
+            SET rating = (
+                SELECT COALESCE(SUM(IF(l.type = 'like', 1, -1)), 0)
+                FROM likes l
+                LEFT JOIN posts p ON l.post_id = p.id
+                LEFT JOIN comments c ON l.comment_id = c.id
+                WHERE p.author_id = u.id OR c.author_id = u.id
+            )
+            WHERE u.id IN (?)
+        `;
+        await db.query(sql, [userIds]);
     }
 }
 

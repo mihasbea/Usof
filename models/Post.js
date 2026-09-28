@@ -1,105 +1,158 @@
-const { pool } = require('../db/db');
+const { pool, withTransaction } = require('../db/db');
+const { visibilityCondition } = require('../utils/visibility');
+const User = require('./User');
+
+const SORT_COLUMNS = {
+    likes: 'likes_count',
+    date: 'p.created_at',
+};
+
+const LIKE_COUNTS_JOIN = `
+    LEFT JOIN (
+        SELECT
+            post_id,
+            COUNT(CASE WHEN type = 'like' THEN 1 END) AS likes_count,
+            COUNT(CASE WHEN type = 'dislike' THEN 1 END) AS dislikes_count
+        FROM likes
+        WHERE post_id IS NOT NULL
+        GROUP BY post_id
+    ) lc ON lc.post_id = p.id
+`;
+
+const POST_FIELDS = `
+    p.id, p.title, p.content, p.status, p.created_at, p.updated_at,
+    p.author_id, u.login AS author_login,
+    COALESCE(lc.likes_count, 0) AS likes_count,
+    COALESCE(lc.dislikes_count, 0) AS dislikes_count
+`;
+
+const UPDATABLE_COLUMNS = ['title', 'content', 'status'];
 
 class Post {
-    /**
-     * Creates a post with its categories and attachments in one transaction.
-     * @param {object} data
-     * @param {number} data.author_id
-     * @param {string} data.title
-     * @param {string} data.content
-     * @param {number[]} data.categoryIds - IDs of existing categories, without duplicates
-     * @param {{ path: string, type: string }[]} data.attachments
-     * @returns {Promise<number>} the new post's ID
-     */
     static async create({ author_id, title, content, categoryIds, attachments }) {
-        const connection = await pool.getConnection();
-
-        try {
-            await connection.beginTransaction();
-
-            const [result] = await connection.query(
+        return withTransaction(async (db) => {
+            const [result] = await db.query(
                 'INSERT INTO posts (author_id, title, content) VALUES (?, ?, ?)',
                 [author_id, title, content]
             );
             const postId = result.insertId;
 
-            await connection.query('INSERT INTO post_categories (post_id, category_id) VALUES ?', [
-                categoryIds.map((categoryId) => [postId, categoryId]),
-            ]);
+            await Post.replaceCategories(postId, categoryIds, db);
 
             if (attachments.length > 0) {
-                await connection.query(
+                await db.query(
                     'INSERT INTO post_attachments (post_id, file_path, file_type) VALUES ?',
                     [attachments.map((attachment) => [postId, attachment.path, attachment.type])]
                 );
             }
 
-            await connection.commit();
             return postId;
-        } catch (error) {
-            await connection.rollback();
-            throw error;
-        } finally {
-            connection.release();
-        }
+        });
     }
 
-    static async countActive() {
-        const sql = "SELECT COUNT(*) AS total FROM posts WHERE status = 'active'";
-        const [rows] = await pool.query(sql);
-        return rows[0].total;
-    }
+    static async findAll({ user, filters, sort, order, limit, offset }) {
+        const { where, params } = buildListConditions(user, filters);
+        const direction = order === 'asc' ? 'ASC' : 'DESC';
 
-    static async getAll(limit, offset) {
-        const sql = `
-            SELECT
-                p.id, p.title, p.content, p.status, p.created_at,
-                u.login AS author_login, u.id AS author_id
+        const postsSql = `
+            SELECT ${POST_FIELDS}
             FROM posts p
             JOIN users u ON p.author_id = u.id
-            WHERE p.status = 'active'
-            ORDER BY p.created_at DESC
+            ${LIKE_COUNTS_JOIN}
+            ${where}
+            ORDER BY ${SORT_COLUMNS[sort]} ${direction}, p.created_at DESC, p.id DESC
             LIMIT ? OFFSET ?
         `;
-        const [posts] = await pool.query(sql, [limit, offset]);
-        return posts;
+        const countSql = `SELECT COUNT(*) AS total FROM posts p ${where}`;
+
+        const [[posts], [countRows]] = await Promise.all([
+            pool.query(postsSql, [...params, limit, offset]),
+            pool.query(countSql, params),
+        ]);
+
+        return { posts: await Post.attachCategories(posts), total: countRows[0].total };
+    }
+
+    static async findById(id) {
+        const sql = 'SELECT id, author_id, status FROM posts WHERE id = ?';
+        const [rows] = await pool.query(sql, [id]);
+        return rows[0];
     }
 
     static async getById(id) {
-        const postQuery = `
-            SELECT
-                p.id, p.title, p.content, p.status, p.created_at, p.updated_at,
-                u.login AS author_login, u.id AS author_id
+        const postSql = `
+            SELECT ${POST_FIELDS}
             FROM posts p
             JOIN users u ON p.author_id = u.id
-            WHERE p.id = ? AND p.status = 'active'
+            ${LIKE_COUNTS_JOIN}
+            WHERE p.id = ?
         `;
-        const [posts] = await pool.query(postQuery, [id]);
-
-        if (posts.length === 0) {
-            return null;
-        }
-
-        const categoriesQuery = `
-            SELECT c.id, c.title
-            FROM categories c
-            JOIN post_categories pc ON c.id = pc.category_id
-            WHERE pc.post_id = ?
-        `;
-        const attachmentsQuery = `
+        const attachmentsSql = `
             SELECT id, file_path, file_type
             FROM post_attachments
             WHERE post_id = ?
         `;
-        const [[categories], [attachments]] = await Promise.all([
-            pool.query(categoriesQuery, [id]),
-            pool.query(attachmentsQuery, [id]),
+
+        const [[posts], categories, [attachments]] = await Promise.all([
+            pool.query(postSql, [id]),
+            Post.getCategories(id),
+            pool.query(attachmentsSql, [id]),
         ]);
 
-        return { ...posts[0], categories, attachments };
+        return posts.length > 0 ? { ...posts[0], categories, attachments } : null;
     }
 
-    // Public paths of every file attached to the author's posts.
+    static async getCategories(postId) {
+        const sql = `
+            SELECT c.id, c.title, c.description
+            FROM categories c
+            JOIN post_categories pc ON c.id = pc.category_id
+            WHERE pc.post_id = ?
+            ORDER BY c.title
+        `;
+        const [categories] = await pool.query(sql, [postId]);
+        return categories;
+    }
+
+    static async update(postId, changes, categoryIds) {
+        const columns = Object.keys(changes).filter((column) => UPDATABLE_COLUMNS.includes(column));
+
+        await withTransaction(async (db) => {
+            if (columns.length > 0) {
+                const setClause = columns.map((column) => `${column} = ?`).join(', ');
+                const values = columns.map((column) => changes[column]);
+                await db.query(`UPDATE posts SET ${setClause} WHERE id = ?`, [...values, postId]);
+            }
+
+            if (categoryIds) {
+                await Post.replaceCategories(postId, categoryIds, db);
+            }
+        });
+    }
+
+    static async delete(postId) {
+        return withTransaction(async (db) => {
+            const [attachments] = await db.query(
+                'SELECT file_path FROM post_attachments WHERE post_id = ?',
+                [postId]
+            );
+            const [authors] = await db.query(
+                `SELECT author_id FROM posts WHERE id = ?
+                 UNION
+                 SELECT author_id FROM comments WHERE post_id = ?`,
+                [postId, postId]
+            );
+
+            await db.query('DELETE FROM posts WHERE id = ?', [postId]);
+            await User.recalculateRatings(
+                authors.map((row) => row.author_id),
+                db
+            );
+
+            return attachments.map((attachment) => attachment.file_path);
+        });
+    }
+
     static async findAttachmentPathsByAuthor(authorId) {
         const sql = `
             SELECT pa.file_path
@@ -110,6 +163,65 @@ class Post {
         const [rows] = await pool.query(sql, [authorId]);
         return rows.map((row) => row.file_path);
     }
+
+    static async replaceCategories(postId, categoryIds, db = pool) {
+        await db.query('DELETE FROM post_categories WHERE post_id = ?', [postId]);
+        await db.query('INSERT INTO post_categories (post_id, category_id) VALUES ?', [
+            categoryIds.map((categoryId) => [postId, categoryId]),
+        ]);
+    }
+
+    static async attachCategories(posts) {
+        if (posts.length === 0) {
+            return posts;
+        }
+
+        const sql = `
+            SELECT pc.post_id, c.id, c.title
+            FROM post_categories pc
+            JOIN categories c ON c.id = pc.category_id
+            WHERE pc.post_id IN (?)
+            ORDER BY c.title
+        `;
+        const [rows] = await pool.query(sql, [posts.map((post) => post.id)]);
+
+        return posts.map((post) => ({
+            ...post,
+            categories: rows
+                .filter((row) => row.post_id === post.id)
+                .map(({ id, title }) => ({ id, title })),
+        }));
+    }
+}
+
+function buildListConditions(user, { status, categoryIds, dateFrom, dateTo }) {
+    const conditions = [];
+    const params = [];
+
+    const visibility = visibilityCondition('p', user);
+    if (visibility) {
+        conditions.push(visibility.sql);
+        params.push(...visibility.params);
+    }
+    if (status) {
+        conditions.push('p.status = ?');
+        params.push(status);
+    }
+    if (categoryIds) {
+        conditions.push('p.id IN (SELECT post_id FROM post_categories WHERE category_id IN (?))');
+        params.push(categoryIds);
+    }
+    if (dateFrom) {
+        conditions.push('p.created_at >= ?');
+        params.push(dateFrom);
+    }
+    if (dateTo) {
+        conditions.push('p.created_at < DATE_ADD(?, INTERVAL 1 DAY)');
+        params.push(dateTo);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    return { where, params };
 }
 
 module.exports = Post;

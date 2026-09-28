@@ -1,15 +1,42 @@
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_STRING_LENGTH = 255;
+const MAX_TEXT_LENGTH = 10000;
 const MIN_PASSWORD_LENGTH = 8;
 
 function isNonEmptyString(value) {
     return typeof value === 'string' && value.trim().length > 0;
 }
 
-/**
- * Parses a positive integer such as an ID, page or limit.
- * @returns {number | null} the number, or null when the value is not a positive integer
- */
+function validateText(value, fieldName, maxLength = MAX_TEXT_LENGTH) {
+    if (!isNonEmptyString(value)) {
+        return `${fieldName} is required`;
+    }
+    if (value.trim().length > maxLength) {
+        return `${fieldName} must be at most ${maxLength} characters long`;
+    }
+    return null;
+}
+
+function parseIdList(value) {
+    const rawIds = typeof value === 'string' ? value.split(',') : value;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+        return null;
+    }
+
+    const ids = rawIds.map(parsePositiveInt);
+    return ids.includes(null) ? null : [...new Set(ids)];
+}
+
+function parseDate(value) {
+    if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
+        return null;
+    }
+
+    const date = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value) ? value : null;
+}
+
 function parsePositiveInt(value) {
     const text = String(value).trim();
     if (!/^\d+$/.test(text)) {
@@ -20,10 +47,6 @@ function parsePositiveInt(value) {
     return number > 0 && Number.isSafeInteger(number) ? number : null;
 }
 
-/**
- * Checks the user fields that are present in `fields`; missing fields are skipped.
- * @returns {string | null} a message describing the first invalid field, or null
- */
 function validateUserFields(fields) {
     const { login, full_name, email, password, password_confirmation } = fields;
 
@@ -54,6 +77,9 @@ function isShortString(value) {
 module.exports = {
     MAX_STRING_LENGTH,
     isNonEmptyString,
+    validateText,
     parsePositiveInt,
+    parseIdList,
+    parseDate,
     validateUserFields,
 };

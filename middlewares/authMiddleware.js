@@ -3,8 +3,7 @@ const BlacklistedToken = require('../models/BlacklistedToken');
 const User = require('../models/User');
 const { hashToken } = require('../utils/security');
 
-// Checks the "Authorization: Bearer <token>" header and puts the current user into req.user.
-async function authMiddleware(req, res, next) {
+async function requireAuth(req, res, next) {
     const [scheme, token] = (req.headers.authorization ?? '').split(' ');
 
     if (scheme !== 'Bearer' || !token) {
@@ -23,7 +22,6 @@ async function authMiddleware(req, res, next) {
             return res.status(401).json({ message: 'Token has been revoked' });
         }
 
-        // The role is read from the database, so a deleted or demoted user loses access at once.
         const user = await User.findById(payload.id);
         if (!user) {
             return res.status(401).json({ message: 'User no longer exists' });
@@ -38,4 +36,11 @@ async function authMiddleware(req, res, next) {
     }
 }
 
-module.exports = authMiddleware;
+function optionalAuth(req, res, next) {
+    if (req.headers.authorization === undefined) {
+        return next();
+    }
+    return requireAuth(req, res, next);
+}
+
+module.exports = { requireAuth, optionalAuth };
