@@ -12,7 +12,6 @@ class BlacklistedToken {
         return rows.length > 0;
     }
 
-    // Returns the number of deleted rows.
     static async deleteExpired() {
         const sql = 'DELETE FROM blacklisted_tokens WHERE expires_at < NOW()';
         const [result] = await pool.query(sql);

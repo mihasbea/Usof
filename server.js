@@ -1,4 +1,3 @@
-// Must run first: other modules read process.env as soon as they are loaded.
 require('dotenv').config({ quiet: true });
 
 const express = require('express');
@@ -16,7 +15,6 @@ const PORT = Number(process.env.PORT) || 3000;
 const app = express();
 
 app.use(express.json());
-// Express 5 leaves req.body undefined when a request has no body.
 app.use((req, res, next) => {
     req.body ??= {};
     next();
@@ -25,7 +23,6 @@ app.use((req, res, next) => {
 app.use(
     UPLOADS_URL,
     express.static(UPLOADS_DIR, {
-        // Stops browsers from guessing a different file type than the one the server sends.
         setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff'),
     })
 );

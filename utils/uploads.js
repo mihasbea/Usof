@@ -7,8 +7,6 @@ const { createHttpError } = require('./httpError');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 const UPLOADS_URL = '/uploads';
 
-// The saved file's extension comes from this map, never from the client's file name,
-// so an upload can't be served back as HTML or script.
 const MIME_EXTENSIONS = {
     'image/jpeg': '.jpg',
     'image/png': '.png',
@@ -20,13 +18,6 @@ const MIME_EXTENSIONS = {
     'application/pdf': '.pdf',
 };
 
-/**
- * Builds a multer instance that stores files in uploads/<subdir> under random names.
- * @param {object} options
- * @param {string} options.subdir - folder inside uploads/
- * @param {string[]} options.allowedTypes - accepted MIME types (keys of MIME_EXTENSIONS)
- * @param {number} options.maxFileSize - max size of one file in bytes
- */
 function createUploader({ subdir, allowedTypes, maxFileSize }) {
     const storage = multer.diskStorage({
         destination: path.join(UPLOADS_DIR, subdir),

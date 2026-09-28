@@ -94,7 +94,6 @@ class UserController {
 
             await User.update(req.user.id, { profile_picture: profilePicture });
 
-            // The old file is deleted only after the database points to the new one.
             if (user?.profile_picture) {
                 await removeFiles([toDiskPath(user.profile_picture)]);
             }
@@ -181,7 +180,6 @@ class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            // Read before deleting: the posts and their attachments are removed by ON DELETE CASCADE.
             const attachmentPaths = await Post.findAttachmentPathsByAuthor(userId);
             await User.delete(userId);
 

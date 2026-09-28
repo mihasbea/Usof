@@ -2,7 +2,6 @@ const cron = require('node-cron');
 const BlacklistedToken = require('../models/BlacklistedToken');
 
 function initCronJobs() {
-    // Every day at midnight
     cron.schedule('0 0 * * *', async () => {
         try {
             const deletedCount = await BlacklistedToken.deleteExpired();

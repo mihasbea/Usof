@@ -5,7 +5,6 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const { connectionOptions, ensureDatabaseExists } = require('./db');
 
-// Creates the database, its tables and the seed data. Safe to run more than once.
 async function initializeDatabase() {
     await ensureDatabaseExists();
 

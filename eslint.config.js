@@ -17,8 +17,8 @@ module.exports = [
             'object-shorthand': 'error',
             'prefer-const': 'error',
             'prefer-template': 'error',
+            'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
         },
     },
-    // Turns off rules that would clash with Prettier's formatting
     prettier,
 ];

@@ -46,7 +46,6 @@ class AuthController {
             try {
                 await sendConfirmationEmail(email, confirmToken);
             } catch (error) {
-                // Without the email the account could never be confirmed, so let the user register again.
                 await User.delete(userId);
                 console.error('Error sending confirmation email:', error);
                 return res.status(502).json({
@@ -79,7 +78,6 @@ class AuthController {
             const user = hasLogin ? await User.findByLogin(login) : await User.findByEmail(email);
             const isPasswordCorrect = user && (await bcrypt.compare(password, user.password));
 
-            // One message for both cases, so nobody can find out which logins exist.
             if (!isPasswordCorrect) {
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
@@ -103,7 +101,7 @@ class AuthController {
 
     static async logout(req, res) {
         try {
-            const expiresAt = new Date(req.user.exp * 1000); // JWT "exp" is in seconds
+            const expiresAt = new Date(req.user.exp * 1000);
             await BlacklistedToken.add(hashToken(req.token), expiresAt);
             return res.status(200).json({ message: 'Logout successful' });
         } catch (error) {
@@ -120,7 +118,6 @@ class AuthController {
                 return res.status(400).json({ message: 'Email is required' });
             }
 
-            // The same answer whether or not the email exists, so nobody can find out which emails are registered.
             const genericMessage =
                 'If this email is registered, a password reset link has been sent.';
 

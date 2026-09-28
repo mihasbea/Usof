@@ -13,12 +13,6 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-/**
- * Sends a link to the frontend page where the user chooses a new password.
- * That page sends the new password to POST /api/auth/password-reset/:confirm_token.
- * @param {string} toEmail
- * @param {string} rawToken - unhashed reset token
- */
 async function sendResetPasswordEmail(toEmail, rawToken) {
     const resetUrl = `${CLIENT_URL}/password-reset/${rawToken}`;
 
@@ -36,11 +30,6 @@ async function sendResetPasswordEmail(toEmail, rawToken) {
     });
 }
 
-/**
- * Sends a link that confirms the user's email address.
- * @param {string} toEmail
- * @param {string} rawToken - unhashed confirmation token
- */
 async function sendConfirmationEmail(toEmail, rawToken) {
     const confirmUrl = `${APP_URL}/api/auth/confirm-email/${rawToken}`;
 

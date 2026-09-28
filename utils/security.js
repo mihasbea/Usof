@@ -7,7 +7,6 @@ function hashPassword(password) {
     return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
 
-// Random token sent to the user; only its hash is stored in the database.
 function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }

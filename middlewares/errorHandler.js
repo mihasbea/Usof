@@ -4,10 +4,7 @@ function notFoundHandler(req, res) {
     return res.status(404).json({ message: `Route ${req.method} ${req.originalUrl} not found` });
 }
 
-// Turns every error that reaches Express (invalid JSON, upload errors, crashes) into a JSON response.
-// Express needs all four parameters to recognise this as an error handler.
-// eslint-disable-next-line no-unused-vars
-function errorHandler(error, req, res, next) {
+function errorHandler(error, req, res, _next) {
     if (error instanceof multer.MulterError) {
         const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
         return res.status(status).json({ message: error.message });
