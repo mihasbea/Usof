@@ -3,6 +3,9 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_STRING_LENGTH = 255;
 const MAX_TEXT_LENGTH = 10000;
 const MIN_PASSWORD_LENGTH = 8;
+const MIN_FULL_NAME_LENGTH = 2;
+const TRIMMED_USER_FIELDS = ['login', 'full_name', 'email'];
+const FULL_NAME_PATTERN = /^\p{L}[\p{L}\p{M}' .-]*[\p{L}.]$/u;
 
 function isNonEmptyString(value) {
     return typeof value === 'string' && value.trim().length > 0;
@@ -47,14 +50,24 @@ function parsePositiveInt(value) {
     return number > 0 && Number.isSafeInteger(number) ? number : null;
 }
 
+function normalizeUserFields(fields) {
+    const normalized = { ...fields };
+    for (const field of TRIMMED_USER_FIELDS) {
+        if (typeof normalized[field] === 'string') {
+            normalized[field] = normalized[field].trim();
+        }
+    }
+    return normalized;
+}
+
 function validateUserFields(fields) {
     const { login, full_name, email, password, password_confirmation } = fields;
 
     if (login !== undefined && !isShortString(login)) {
         return `Login must be a non-empty string of at most ${MAX_STRING_LENGTH} characters`;
     }
-    if (full_name !== undefined && !isShortString(full_name)) {
-        return `Full name must be a non-empty string of at most ${MAX_STRING_LENGTH} characters`;
+    if (full_name !== undefined && !isValidFullName(full_name)) {
+        return `Full name must be ${MIN_FULL_NAME_LENGTH}-${MAX_STRING_LENGTH} characters long and contain only letters, spaces, apostrophes, dots and hyphens`;
     }
     if (email !== undefined && !(isShortString(email) && EMAIL_PATTERN.test(email))) {
         return 'Email is not valid';
@@ -70,6 +83,14 @@ function validateUserFields(fields) {
     return null;
 }
 
+function isValidFullName(value) {
+    return (
+        isShortString(value) &&
+        value.trim().length >= MIN_FULL_NAME_LENGTH &&
+        FULL_NAME_PATTERN.test(value.trim())
+    );
+}
+
 function isShortString(value) {
     return isNonEmptyString(value) && value.length <= MAX_STRING_LENGTH;
 }
@@ -81,5 +102,6 @@ module.exports = {
     parsePositiveInt,
     parseIdList,
     parseDate,
+    normalizeUserFields,
     validateUserFields,
 };

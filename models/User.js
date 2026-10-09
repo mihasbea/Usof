@@ -49,8 +49,31 @@ class User {
         return rows[0];
     }
 
+    static async findByCredentials({ login, email }) {
+        const conditions = [];
+        const params = [];
+        if (login !== undefined) {
+            conditions.push('login = ?');
+            params.push(login);
+        }
+        if (email !== undefined) {
+            conditions.push('email = ?');
+            params.push(email);
+        }
+
+        const sql = `SELECT * FROM users WHERE ${conditions.join(' AND ')}`;
+        const [rows] = await pool.query(sql, params);
+        return rows[0];
+    }
+
     static async findAllPublic() {
-        const sql = `SELECT ${PUBLIC_FIELDS} FROM users`;
+        const sql = `SELECT ${PUBLIC_FIELDS} FROM users ORDER BY id`;
+        const [rows] = await pool.query(sql);
+        return rows;
+    }
+
+    static async findAllProfiles() {
+        const sql = `SELECT ${PROFILE_FIELDS} FROM users ORDER BY id`;
         const [rows] = await pool.query(sql);
         return rows;
     }

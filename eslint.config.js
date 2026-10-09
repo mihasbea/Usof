@@ -20,5 +20,12 @@ module.exports = [
             'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
         },
     },
+    {
+        files: ['admin/**/*.js'],
+        languageOptions: {
+            sourceType: 'module',
+            globals: globals.browser,
+        },
+    },
     prettier,
 ];

@@ -1,19 +1,13 @@
 const Category = require('../models/Category');
 const Post = require('../models/Post');
+const NotificationService = require('../services/NotificationService');
 const { removeFiles, toDiskPath, toPublicPath } = require('../utils/uploads');
 const {
-    MAX_STRING_LENGTH,
-    parseDate,
-    parseIdList,
-    parsePositiveInt,
-    validateText,
-} = require('../utils/validators');
-
-const DEFAULT_PAGE_SIZE = 10;
-const MAX_PAGE_SIZE = 100;
-const POST_STATUSES = ['active', 'inactive'];
-const SORT_OPTIONS = ['likes', 'date'];
-const ORDER_OPTIONS = ['asc', 'desc'];
+    POST_STATUSES,
+    buildPostListResponse,
+    parsePostListQuery,
+} = require('../utils/postListQuery');
+const { MAX_STRING_LENGTH, parseIdList, validateText } = require('../utils/validators');
 
 function validateTitle(title) {
     return validateText(title, 'Title', MAX_STRING_LENGTH);
@@ -36,52 +30,6 @@ async function validateCategories(categories) {
     }
 
     return { categoryIds };
-}
-
-function parseListQuery(query) {
-    const page = query.page === undefined ? 1 : parsePositiveInt(query.page);
-    const limit = query.limit === undefined ? DEFAULT_PAGE_SIZE : parsePositiveInt(query.limit);
-    if (!page || !limit || limit > MAX_PAGE_SIZE) {
-        return {
-            error: `Page must be a positive integer and limit must be between 1 and ${MAX_PAGE_SIZE}`,
-        };
-    }
-
-    const { sort = 'likes', order = 'desc', status } = query;
-    if (!SORT_OPTIONS.includes(sort)) {
-        return { error: `Sort must be one of: ${SORT_OPTIONS.join(', ')}` };
-    }
-    if (!ORDER_OPTIONS.includes(order)) {
-        return { error: `Order must be one of: ${ORDER_OPTIONS.join(', ')}` };
-    }
-    if (status !== undefined && !POST_STATUSES.includes(status)) {
-        return { error: `Status must be one of: ${POST_STATUSES.join(', ')}` };
-    }
-
-    let categoryIds;
-    if (query.categories !== undefined) {
-        categoryIds = parseIdList(query.categories);
-        if (!categoryIds) {
-            return { error: 'Categories must be a comma-separated list of category IDs' };
-        }
-    }
-
-    const dateFrom = query.date_from === undefined ? undefined : parseDate(query.date_from);
-    const dateTo = query.date_to === undefined ? undefined : parseDate(query.date_to);
-    if (dateFrom === null || dateTo === null) {
-        return { error: 'Dates must be valid dates in the YYYY-MM-DD format' };
-    }
-    if (dateFrom && dateTo && dateFrom > dateTo) {
-        return { error: 'date_from must not be later than date_to' };
-    }
-
-    return {
-        page,
-        limit,
-        sort,
-        order,
-        filters: { status, categoryIds, dateFrom, dateTo },
-    };
 }
 
 function getAttachmentType(mimetype) {
@@ -116,13 +64,19 @@ class PostController {
                 type: getAttachmentType(file.mimetype),
             }));
 
+            const postTitle = title.trim();
             const postId = await Post.create({
                 author_id: req.user.id,
-                title: title.trim(),
+                title: postTitle,
                 content: content.trim(),
                 categoryIds,
                 attachments,
             });
+            await NotificationService.notifyNewPostInCategories(
+                { id: postId, title: postTitle },
+                categoryIds,
+                req.user
+            );
 
             return res.status(201).json({
                 message: 'Post created successfully',
@@ -138,30 +92,22 @@ class PostController {
 
     static async getAll(req, res) {
         try {
-            const query = parseListQuery(req.query);
+            const query = parsePostListQuery(req.query);
             if (query.error) {
                 return res.status(400).json({ message: query.error });
             }
 
-            const { page, limit, sort, order, filters } = query;
+            const { page, limit, offset, sort, order, filters } = query;
             const { posts, total } = await Post.findAll({
                 user: req.user,
                 filters,
                 sort,
                 order,
                 limit,
-                offset: (page - 1) * limit,
+                offset,
             });
 
-            return res.status(200).json({
-                data: posts,
-                pagination: {
-                    total_posts: total,
-                    total_pages: Math.ceil(total / limit),
-                    current_page: page,
-                    limit,
-                },
-            });
+            return res.status(200).json(buildPostListResponse(posts, total, page, limit));
         } catch (error) {
             console.error('Error fetching posts:', error);
             return res.status(500).json({ message: 'Internal server error' });
@@ -170,7 +116,7 @@ class PostController {
 
     static async getById(req, res) {
         try {
-            const post = await Post.getById(req.post.id);
+            const post = await Post.getById(req.post.id, req.user?.id);
             return res.status(200).json(post);
         } catch (error) {
             console.error(`Error fetching post ID ${req.post.id}:`, error);
@@ -253,7 +199,12 @@ class PostController {
             }
 
             await Post.update(req.post.id, changes, categoryIds);
-            const post = await Post.getById(req.post.id);
+            const post = await Post.getById(req.post.id, req.user.id);
+
+            const changedFields = categoryIds
+                ? [...Object.keys(changes), 'categories']
+                : Object.keys(changes);
+            await NotificationService.notifyPostUpdated(post, changedFields, req.user);
 
             return res.status(200).json({ message: 'Post updated successfully', post });
         } catch (error) {

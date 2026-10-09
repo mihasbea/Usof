@@ -1,29 +1,15 @@
 require('dotenv').config({ quiet: true });
 
-const fs = require('fs/promises');
-const path = require('path');
-const mysql = require('mysql2/promise');
-const { connectionOptions, ensureDatabaseExists } = require('./db');
+const DatabaseInitializer = require('./DatabaseInitializer');
 
-async function initializeDatabase() {
-    await ensureDatabaseExists();
+const reset = process.argv.includes('--reset');
 
-    const sql = await fs.readFile(path.join(__dirname, 'db.sql'), 'utf8');
-    const connection = await mysql.createConnection({
-        ...connectionOptions,
-        database: process.env.DB_NAME,
-        multipleStatements: true,
-    });
-
-    try {
-        await connection.query(sql);
-    } finally {
-        await connection.end();
-    }
-}
-
-initializeDatabase()
-    .then(() => console.log('Database has been successfully initialized'))
+DatabaseInitializer.initialize({ reset })
+    .then(({ seeded }) => {
+        const action = reset ? 'recreated' : 'initialized';
+        const seedInfo = seeded ? 'with test data' : 'test data skipped: the database is not empty';
+        console.log(`Database has been ${action} (${seedInfo})`);
+    })
     .catch((error) => {
         console.error('Database initialization error:', error);
         process.exitCode = 1;

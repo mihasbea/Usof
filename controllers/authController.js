@@ -5,7 +5,11 @@ const BlacklistedToken = require('../models/BlacklistedToken');
 const User = require('../models/User');
 const { sendResetPasswordEmail, sendConfirmationEmail } = require('../utils/mailer');
 const { generateToken, hashPassword, hashToken } = require('../utils/security');
-const { isNonEmptyString, validateUserFields } = require('../utils/validators');
+const {
+    isNonEmptyString,
+    normalizeUserFields,
+    validateUserFields,
+} = require('../utils/validators');
 
 const ACCESS_TOKEN_LIFETIME = '3h';
 const PASSWORD_RESET_LIFETIME_MS = 60 * 60 * 1000;
@@ -13,7 +17,8 @@ const PASSWORD_RESET_LIFETIME_MS = 60 * 60 * 1000;
 class AuthController {
     static async register(req, res) {
         try {
-            const { login, password, password_confirmation, full_name, email } = req.body;
+            const { login, password, password_confirmation, full_name, email } =
+                normalizeUserFields(req.body);
 
             if (!login || !password || !password_confirmation || !full_name || !email) {
                 return res.status(400).json({ message: 'All fields are required' });
@@ -69,13 +74,16 @@ class AuthController {
 
             const hasLogin = isNonEmptyString(login);
             const hasEmail = isNonEmptyString(email);
-            if (hasLogin === hasEmail || !isNonEmptyString(password)) {
+            if ((!hasLogin && !hasEmail) || !isNonEmptyString(password)) {
                 return res
                     .status(400)
-                    .json({ message: 'Provide a password and either a login or an email' });
+                    .json({ message: 'Provide a password and a login, an email or both' });
             }
 
-            const user = hasLogin ? await User.findByLogin(login) : await User.findByEmail(email);
+            const user = await User.findByCredentials({
+                login: hasLogin ? login.trim() : undefined,
+                email: hasEmail ? email.trim() : undefined,
+            });
             const isPasswordCorrect = user && (await bcrypt.compare(password, user.password));
 
             if (!isPasswordCorrect) {

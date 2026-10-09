@@ -1,5 +1,5 @@
-const { pool } = require('../db/db');
-const { visibilityCondition } = require('../utils/visibility');
+const { pool, withTransaction } = require('../db/db');
+const User = require('./User');
 
 const LIKE_COUNTS_JOIN = `
     LEFT JOIN (
@@ -19,6 +19,13 @@ const COMMENT_FIELDS = `
     COALESCE(lc.likes_count, 0) AS likes_count,
     COALESCE(lc.dislikes_count, 0) AS dislikes_count
 `;
+const SORT_COLUMNS = {
+    date: 'c.created_at',
+    likes: 'likes_count',
+    post: 'p.title',
+    author: 'u.login',
+};
+const SORT_DIRECTIONS = new Set(['asc', 'desc']);
 
 class Comment {
     static async create({ post_id, author_id, content }) {
@@ -39,26 +46,89 @@ class Comment {
         return rows[0];
     }
 
-    static async findByPost(postId, user) {
-        const conditions = ['c.post_id = ?'];
-        const params = [postId];
-
-        const visibility = visibilityCondition('c', user);
-        if (visibility) {
-            conditions.push(visibility.sql);
-            params.push(...visibility.params);
+    static async findAll({ status, search, sort, order, limit, offset }) {
+        const conditions = [];
+        const params = [];
+        if (status) {
+            conditions.push('c.status = ?');
+            params.push(status);
         }
+        if (search) {
+            const pattern = `%${search}%`;
+            conditions.push(
+                '(c.content LIKE ? OR p.title LIKE ? OR u.login LIKE ? OR u.full_name LIKE ?)'
+            );
+            params.push(pattern, pattern, pattern, pattern);
+        }
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const sortColumn = SORT_COLUMNS[sort] || SORT_COLUMNS.date;
+        const direction = SORT_DIRECTIONS.has(order) ? order.toUpperCase() : 'DESC';
 
+        const commentsSql = `
+            SELECT ${COMMENT_FIELDS}, p.title AS post_title
+            FROM comments c
+            JOIN users u ON c.author_id = u.id
+            JOIN posts p ON p.id = c.post_id
+            ${LIKE_COUNTS_JOIN}
+            ${where}
+            ORDER BY ${sortColumn} ${direction}, c.id DESC
+            LIMIT ? OFFSET ?
+        `;
+        const countSql = `
+            SELECT COUNT(*) AS total
+            FROM comments c
+            JOIN users u ON c.author_id = u.id
+            JOIN posts p ON p.id = c.post_id
+            ${where}
+        `;
+
+        const [[comments], [countRows]] = await Promise.all([
+            pool.query(commentsSql, [...params, limit, offset]),
+            pool.query(countSql, params),
+        ]);
+        return { comments, total: countRows[0].total };
+    }
+
+    static async findByPost(postId) {
         const sql = `
             SELECT ${COMMENT_FIELDS}
             FROM comments c
             JOIN users u ON c.author_id = u.id
             ${LIKE_COUNTS_JOIN}
-            WHERE ${conditions.join(' AND ')}
+            WHERE c.post_id = ?
             ORDER BY c.created_at ASC, c.id ASC
         `;
-        const [comments] = await pool.query(sql, params);
+        const [comments] = await pool.query(sql, [postId]);
         return comments;
+    }
+
+    static async findAccessInfo(id) {
+        const sql = `
+            SELECT
+                c.id, c.author_id, c.status, c.post_id,
+                p.status AS post_status, p.author_id AS post_author_id
+            FROM comments c
+            JOIN posts p ON p.id = c.post_id
+            WHERE c.id = ?
+        `;
+        const [rows] = await pool.query(sql, [id]);
+        return rows[0];
+    }
+
+    static async updateStatus(id, status) {
+        const [result] = await pool.query('UPDATE comments SET status = ? WHERE id = ?', [
+            status,
+            id,
+        ]);
+        return result.affectedRows > 0;
+    }
+
+    static async delete(id, authorId) {
+        return withTransaction(async (db) => {
+            const [result] = await db.query('DELETE FROM comments WHERE id = ?', [id]);
+            await User.recalculateRatings([authorId], db);
+            return result.affectedRows > 0;
+        });
     }
 }
 

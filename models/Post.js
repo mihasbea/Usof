@@ -38,6 +38,10 @@ class Post {
             const postId = result.insertId;
 
             await Post.replaceCategories(postId, categoryIds, db);
+            await db.query('INSERT INTO post_subscriptions (user_id, post_id) VALUES (?, ?)', [
+                author_id,
+                postId,
+            ]);
 
             if (attachments.length > 0) {
                 await db.query(
@@ -74,12 +78,12 @@ class Post {
     }
 
     static async findById(id) {
-        const sql = 'SELECT id, author_id, status FROM posts WHERE id = ?';
+        const sql = 'SELECT id, author_id, title, status FROM posts WHERE id = ?';
         const [rows] = await pool.query(sql, [id]);
         return rows[0];
     }
 
-    static async getById(id) {
+    static async getById(id, userId) {
         const postSql = `
             SELECT ${POST_FIELDS}
             FROM posts p
@@ -93,13 +97,29 @@ class Post {
             WHERE post_id = ?
         `;
 
-        const [[posts], categories, [attachments]] = await Promise.all([
+        const [[posts], categories, [attachments], userState] = await Promise.all([
             pool.query(postSql, [id]),
             Post.getCategories(id),
             pool.query(attachmentsSql, [id]),
+            userId === undefined ? {} : Post.getUserState(id, userId),
         ]);
 
-        return posts.length > 0 ? { ...posts[0], categories, attachments } : null;
+        return posts.length > 0 ? { ...posts[0], ...userState, categories, attachments } : null;
+    }
+
+    static async getUserState(postId, userId) {
+        const sql = `
+            SELECT
+                EXISTS (SELECT 1 FROM favorites WHERE user_id = ? AND post_id = ?) AS is_favorite,
+                EXISTS (
+                    SELECT 1 FROM post_subscriptions WHERE user_id = ? AND post_id = ?
+                ) AS is_subscribed
+        `;
+        const [rows] = await pool.query(sql, [userId, postId, userId, postId]);
+        return {
+            is_favorite: Boolean(rows[0].is_favorite),
+            is_subscribed: Boolean(rows[0].is_subscribed),
+        };
     }
 
     static async getCategories(postId) {
@@ -194,7 +214,10 @@ class Post {
     }
 }
 
-function buildListConditions(user, { status, categoryIds, dateFrom, dateTo }) {
+function buildListConditions(
+    user,
+    { status, categoryIds, dateFrom, dateTo, favoriteOf, subscribedBy, search }
+) {
     const conditions = [];
     const params = [];
 
@@ -218,6 +241,22 @@ function buildListConditions(user, { status, categoryIds, dateFrom, dateTo }) {
     if (dateTo) {
         conditions.push('p.created_at < DATE_ADD(?, INTERVAL 1 DAY)');
         params.push(dateTo);
+    }
+    if (search) {
+        const pattern = `%${search}%`;
+        conditions.push(
+            '(p.title LIKE ? OR p.content LIKE ? OR p.author_id IN (SELECT id FROM users WHERE login LIKE ? OR full_name LIKE ?))'
+        );
+        params.push(pattern, pattern, pattern, pattern);
+    }
+
+    if (favoriteOf) {
+        conditions.push('p.id IN (SELECT post_id FROM favorites WHERE user_id = ?)');
+        params.push(favoriteOf);
+    }
+    if (subscribedBy) {
+        conditions.push('p.id IN (SELECT post_id FROM post_subscriptions WHERE user_id = ?)');
+        params.push(subscribedBy);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

@@ -3,15 +3,52 @@ const Post = require('../models/Post');
 const User = require('../models/User');
 const { removeFiles, toDiskPath, toPublicPath } = require('../utils/uploads');
 const { hashPassword } = require('../utils/security');
-const { parsePositiveInt, validateUserFields } = require('../utils/validators');
+const {
+    normalizeUserFields,
+    parsePositiveInt,
+    validateUserFields,
+} = require('../utils/validators');
 
 const ROLES = ['user', 'admin'];
-const UPDATABLE_FIELDS = ['login', 'email', 'password', 'full_name'];
+const UPDATABLE_FIELDS = ['login', 'email', 'password', 'full_name', 'role'];
+
+function canSeePrivateData(currentUser, userId) {
+    return currentUser?.role === 'admin' || currentUser?.id === userId;
+}
+
+function pickUpdateData(body) {
+    const updateData = {};
+    for (const field of UPDATABLE_FIELDS) {
+        if (body[field] !== undefined) {
+            updateData[field] = body[field];
+        }
+    }
+    return updateData;
+}
+
+function checkRoleChange(currentUser, userId, role) {
+    if (role === undefined) {
+        return null;
+    }
+    if (currentUser.role !== 'admin') {
+        return { status: 403, message: 'Only an admin can change roles' };
+    }
+    if (currentUser.id === userId) {
+        return { status: 403, message: 'You cannot change your own role' };
+    }
+    if (!ROLES.includes(role)) {
+        return { status: 400, message: `Role must be one of: ${ROLES.join(', ')}` };
+    }
+    return null;
+}
 
 class UserController {
     static async getAll(req, res) {
         try {
-            const users = await User.findAllPublic();
+            const users =
+                req.user?.role === 'admin'
+                    ? await User.findAllProfiles()
+                    : await User.findAllPublic();
             return res.status(200).json(users);
         } catch (error) {
             console.error('Error fetching users:', error);
@@ -26,7 +63,9 @@ class UserController {
                 return res.status(400).json({ message: 'Invalid user ID format' });
             }
 
-            const user = await User.findPublicById(userId);
+            const user = canSeePrivateData(req.user, userId)
+                ? await User.findById(userId)
+                : await User.findPublicById(userId);
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
@@ -40,14 +79,17 @@ class UserController {
 
     static async create(req, res) {
         try {
-            const { login, password, password_confirmation, full_name, email, role } = req.body;
+            const { login, password, password_confirmation, full_name, email, role } =
+                normalizeUserFields(req.body);
 
             if (!login || !password || !password_confirmation || !full_name || !email || !role) {
                 return res.status(400).json({ message: 'All fields are required' });
             }
 
             if (!ROLES.includes(role)) {
-                return res.status(400).json({ message: "Role must be 'user' or 'admin'" });
+                return res
+                    .status(400)
+                    .json({ message: `Role must be one of: ${ROLES.join(', ')}` });
             }
 
             const validationError = validateUserFields({
@@ -65,7 +107,7 @@ class UserController {
                 return res.status(409).json({ message: 'Email or login already in use' });
             }
 
-            await User.create({
+            const userId = await User.create({
                 login,
                 password: await hashPassword(password),
                 full_name,
@@ -73,7 +115,9 @@ class UserController {
                 role,
                 email_confirmed: true,
             });
-            return res.status(201).json({ message: 'User created successfully' });
+            const user = await User.findById(userId);
+
+            return res.status(201).json({ message: 'User created successfully', user });
         } catch (error) {
             if (isDuplicateEntryError(error)) {
                 return res.status(409).json({ message: 'Email or login already in use' });
@@ -115,17 +159,16 @@ class UserController {
                 return res.status(400).json({ message: 'Invalid user ID format' });
             }
 
-            const updateData = {};
-            for (const field of UPDATABLE_FIELDS) {
-                if (req.body[field] !== undefined) {
-                    updateData[field] = req.body[field];
-                }
-            }
-
+            const updateData = normalizeUserFields(pickUpdateData(req.body));
             if (Object.keys(updateData).length === 0) {
                 return res.status(400).json({
                     message: `Provide at least one field to update: ${UPDATABLE_FIELDS.join(', ')}`,
                 });
+            }
+
+            const roleError = checkRoleChange(req.user, userId, updateData.role);
+            if (roleError) {
+                return res.status(roleError.status).json({ message: roleError.message });
             }
 
             const validationError = validateUserFields({
@@ -158,7 +201,11 @@ class UserController {
             }
 
             await User.update(userId, updateData);
-            return res.status(200).json({ message: 'User updated successfully' });
+            const updatedUser = await User.findById(userId);
+
+            return res
+                .status(200)
+                .json({ message: 'User updated successfully', user: updatedUser });
         } catch (error) {
             if (isDuplicateEntryError(error)) {
                 return res.status(409).json({ message: 'Login or email is already taken' });
