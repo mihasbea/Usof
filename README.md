@@ -86,7 +86,7 @@ The application uses Express, `mysql2`, `bcrypt`, `jsonwebtoken`, `multer`, `nod
     npm install
     ```
 
-3. Copy `.env.example` to `.env` and update the values for your environment. See [Configuration](#configuration).
+3. The `.env` file is not included in the repository. Create a `.env` file in the project directory, copy the contents of `.env.example` into it, and update the values for your environment. See [Configuration](#configuration).
 
 4. Ensure MySQL is running and that the configured MySQL account can create and use the database. Start the application:
 

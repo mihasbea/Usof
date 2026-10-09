@@ -1,6 +1,9 @@
-require('dotenv').config({ quiet: true });
-
 const path = require('path');
+require('dotenv').config({
+    path: path.resolve(__dirname, '..', '.env'),
+    quiet: true,
+});
+
 const express = require('express');
 const DatabaseInitializer = require('./db/DatabaseInitializer');
 const { notFoundHandler, errorHandler } = require('./middlewares/errorHandler');
